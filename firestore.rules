@@ -1,0 +1,71 @@
+// ======================================================================
+// File: firestore.rules
+// เวอร์ชัน: 2025-09-18 22:05 (+07)
+// หน้าที่: ขันกฎ "create คำขอ" ที่ /requests ให้ปลอดภัยขึ้น (ต้องมีฟิลด์สำคัญถูกต้อง)
+//          โดยยังเปิด create ที่ซับคอลเลกชันไว้ชั่วคราว (ไม่ล็อกชื่อ) เพื่อไม่ให้เว็บสะดุด
+// เชื่อม auth ผ่าน "อะแดปเตอร์": -
+// หมายเหตุ:
+//   • เปิดเฉพาะ create จาก client; read/update/delete ยังปิดเหมือนเดิม
+//   • ใช้ regex ตรวจ requestId แบบกว้าง ๆ (ตัวอักษร/ตัวเลข/._- ยาว 6–64)
+//   • ขั้นถัดไป (A-2) เราค่อย "ล็อกชื่อซับคอลเลกชัน" และจำกัดจำนวน/ความยาวเพิ่มเติม
+// วันที/เดือน/ปี เวลา
+// ======================================================================
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===== users: อ่านเฉพาะของตัวเอง (คงเดิม) =====
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    // ===== admins: อ่านเฉพาะของตัวเอง (คงเดิม) =====
+    match /admins/{id} {
+      allow read: if request.auth != null && (
+        id == request.auth.uid ||
+        (request.auth.token.email != null && id == request.auth.token.email)
+      );
+      allow write: if false;
+    }
+
+    // ===== requests: เอกสารหลักของคำขอ =====
+    match /requests/{rid} {
+
+      // อนุญาตเฉพาะ "create" เมื่อฟิลด์สำคัญผ่านเงื่อนไข
+      allow create: if
+        // ต้องมี requestId เป็นสตริง และรูปแบบกว้าง ๆ (ตัวอักษร/ตัวเลข/._- ยาว 6–64)
+        request.resource.data.requestId is string &&
+        request.resource.data.requestId.matches('^[A-Za-z0-9._-]{6,64}$') &&
+
+        // สถานะเริ่มต้นต้องเป็น "pending"
+        request.resource.data.status == "pending" &&
+
+        // requester ต้องเป็นแผนที่ (map) และมี name/phone เป็นสตริง
+        request.resource.data.requester is map &&
+        request.resource.data.requester.name is string &&
+        request.resource.data.requester.phone is string &&
+
+        // (ออปชัน) createdAt ถ้ามีก็ต้องเป็น timestamp
+        (
+          !('createdAt' in request.resource.data) ||
+          request.resource.data.createdAt is timestamp
+        );
+
+      // ปิดการอ่าน/แก้ไข/ลบ จาก client
+      allow read, update, delete: if false;
+    }
+
+    // ===== subcollections ใต้คำขอ (เปิด create ชั่วคราวเพื่อไม่ให้เว็บสะดุด) =====
+    // ตัวอย่างเช่น: /requests/{rid}/uploads/{doc}, /requests/{rid}/workers/{doc}
+    match /requests/{rid}/{anySub=**} {
+      allow create: if true; // จะค่อย ๆ เข้มขึ้นในขั้น A-2
+      allow read, update, delete: if false;
+    }
+
+    // ===== ปิดทุก path อื่น =====
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

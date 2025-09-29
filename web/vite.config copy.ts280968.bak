@@ -1,0 +1,26 @@
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import legacy from "@vitejs/plugin-legacy";
+
+export default defineConfig({
+  plugins: [
+    react(),
+    legacy({
+      // รายชื่อเบราว์เซอร์เป้าหมายแบบอ่านง่าย
+      targets: [
+        "defaults",
+        "Firefox >= 52",
+        "Chrome >= 49",
+        "Safari >= 10"
+      ],
+      // ใส่ตัวช่วยฟื้นฟูฟังก์ชันสมัยใหม่ให้เครื่องเก่า
+      additionalLegacyPolyfills: [
+        "regenerator-runtime/runtime",
+        "core-js/stable"
+      ],
+      renderLegacyChunks: true,
+      modernPolyfills: true
+    })
+  ],
+  server: { port: 5173, host: true }
+});

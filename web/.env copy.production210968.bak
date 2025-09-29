@@ -1,0 +1,58 @@
+# ไฟล์: web/.env.production
+# เวลา: 2025-09-10 18:35
+# แก้อะไร: รวมค่าจาก .env.local ที่เว็บอาจอ้างถึง + ชี้โดเมน/ฟังก์ชัน Production
+# Written by: Work Permit System Tutor
+
+# 1) META / APPLICATION SETTINGS
+VITE_SITE_NAME="Work Permit App"
+VITE_APPROVER_EMAIL="asm.sutthirak@gmail.com"
+VITE_APP_BASE_URL="https://imperialworld.asia"
+
+# 2) FIREBASE CONFIG (Project: work-permit-app-1e9f0)
+VITE_FIREBASE_API_KEY="AIzaSyDOp1ThCGPjdKqAgCXiY4qZqeFtcnNWa6Q"
+VITE_FIREBASE_AUTH_DOMAIN="work-permit-app-1e9f0.firebaseapp.com"
+VITE_FIREBASE_PROJECT_ID="work-permit-app-1e9f0"
+# NOTE: บางที่ใช้ .app บางที่ใช้ .appspot.com — โปรเจกต์นี้ใช้ .firebasestorage.app ตามที่กำหนด
+VITE_FIREBASE_STORAGE_BUCKET="work-permit-app-1e9f0.firebasestorage.app"
+VITE_FIREBASE_MESSAGING_SENDER_ID="532874719008"
+VITE_FIREBASE_APP_ID="1:532874719008:web:ebf5d8fca58414ea747145"
+VITE_FIREBASE_MEASUREMENT_ID="G-186H83JTMX"
+VITE_FIREBASE_STORAGE_BUCKET_GS="gs://work-permit-app-1e9f0.firebasestorage.app"
+
+# 3) PUBLIC STATUS API (แนะนำใช้ Cloud Functions เพื่อลด CORS)
+# VITE_GET_STATUS_URL="https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net/getStatus"
+# (ถ้าจำเป็นต้องใช้ Cloud Run เดิม เก็บสำรองไว้คอมเมนต์)
+VITE_GET_STATUS_URL="https://getstatus-aa5gfxjdmq-as.a.run.app"
+
+# 4) MAIN BACKEND ENDPOINTS (Production)
+# ใช้ getRequestAdmin / listRequests / updateStatus ที่เป็น Cloud Functions v2
+VITE_GET_REQUEST_ADMIN_URL="https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net/getRequestAdmin"
+VITE_LIST_REQUESTS_URL="https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net/listRequests"
+VITE_UPDATE_STATUS_URL="https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net/updateStatus"
+# (สำรองค่าเดิมแบบ Cloud Run เผื่อโค้ดบางส่วนยังอ้าง — ไม่ใช้ก็ไม่เป็นไร)
+VITE_DECISION_PORTAL_URL="https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net/decisionPortal"
+# VITE_GET_REQUEST_ADMIN_URL="https://getrequestadmin-aa5gfxjdmq-as.a.run.app"
+# VITE_DECISION_PORTAL_URL="https://decisionportal-aa5gfxjdmq-as.a.run.app"
+
+# 5) USER MANAGEMENT (Admins)
+VITE_LIST_ADMINS_URL="https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net/listAdmins"
+VITE_ADD_ADMIN_URL="https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net/addAdmin"
+VITE_UPDATE_ADMIN_ROLE_URL="https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net/updateAdminRole"
+VITE_REMOVE_ADMIN_URL="https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net/removeAdmin"
+VITE_LIST_LOGS_URL="https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net/listLogs"
+VITE_INVITE_ADMIN_URL="https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net/inviteAdmin"
+
+# 6) PROXY FUNCTIONS (ถ้าหน้าใดเรียก proxy ให้คงค่าไว้)
+VITE_PROXY_LISTREQUESTS_URL="https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net/proxyListRequests"
+VITE_PROXY_LISTADMINS_URL="https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net/proxyListAdmins"
+VITE_PROXY_LIST_REQUESTS_URL="https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net/proxyListRequests"
+VITE_PROXY_LIST_ADMINS_URL="https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net/proxyListAdmins"
+
+# 7) AUTHENTICATION & SECURITY
+VITE_APPROVER_KEY="apl-2025"
+
+# 8) COMPAT / FALLBACK
+VITE_LIST_REQUESTS_ADMIN_URL="https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net/listRequests"
+# VITE_FIREBASE_STORAGE_BUCKET="work-permit-app-1e9f0.firebasestorage.app"
+VITE_LOG_AUTH_URL="https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net/logAuth"
+VITE_LIST_LOGS_URL="https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net/listLogs"

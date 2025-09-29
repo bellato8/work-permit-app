@@ -1,0 +1,172 @@
+// ======================================================================
+// File: web/src/lib/apiClient.ts
+// เวอร์ชัน: 2025-09-19 20:20 (Asia/Bangkok)
+// หน้าที่: ตัวช่วยเรียก Cloud Functions/Cloud Run พร้อมแนบ Firebase ID Token อัตโนมัติ
+// เชื่อม auth ผ่าน "firebase/auth" (ไฟร์เบส/ออธ) เพื่อดึง ID Token แบบ Bearer (เบอเรอร์/โทเค็น)
+// หมายเหตุ:
+//   - ปรับให้ฟิลด์อัปเดตสถานะตรง backend: { status, note } (แทน { decision, reason })
+//   - รองรับ path แบบ absolute URL (ขึ้นต้น http) ข้าม BASE ได้ (เช่น ใช้ VITE_UPDATE_STATUS_URL ตรงๆ)
+//   - getIdToken() ปล่อยให้ SDK รีเฟรชอัตโนมัติเมื่อจำเป็น (ลด 401 จากโทเค็นหมดอายุ)
+// วันที่/เดือน/ปี เวลา: 19/09/2025 20:20 น.
+// ======================================================================
+
+import { getAuth, onAuthStateChanged } from "firebase/auth";
+
+// ฐาน URL เรียกฟังก์ชัน (ถ้า path ไม่ใช่ http จะต่อท้าย BASE นี้)
+const FUNCTIONS_BASE =
+  (import.meta as any).env?.VITE_FUNCTIONS_BASE ??
+  "https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net";
+
+// ----------------------------------------------------------------------
+// [อ่าน] Authorization (ออโทไรเซชัน/ส่วนอนุญาต) = การแนบโทเค็นยืนยันตัวตนไว้ใน header
+// [มาตรฐาน] ใช้รูปแบบ Bearer <token> ใน header "Authorization" ตาม RFC 6750
+//           ฝั่งเซิร์ฟเวอร์จะ verifyIdToken() ด้วย Admin SDK
+// ----------------------------------------------------------------------
+
+/** รอผู้ใช้ล็อกอิน แล้วขอ ID Token ปัจจุบัน (SDK จะรีเฟรชเมื่อจำเป็น) */
+async function getIdTokenOrWait(timeoutMs = 10_000): Promise<string> {
+  const auth = getAuth();
+  if (auth.currentUser) return auth.currentUser.getIdToken(); // ปล่อยให้ SDK จัดการรีเฟรชเอง
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      unsub();
+      reject(new Error("no_user"));
+    }, timeoutMs);
+
+    const unsub = onAuthStateChanged(
+      auth,
+      async (u) => {
+        if (!u) return;
+        clearTimeout(timer);
+        unsub();
+        try {
+          const t = await u.getIdToken(); // รีเฟรชอัตโนมัติหากจำเป็น
+          resolve(t);
+        } catch (e) {
+          reject(e);
+        }
+      },
+      (err) => {
+        clearTimeout(timer);
+        unsub();
+        reject(err);
+      }
+    );
+  });
+}
+
+/** คืนอีเมลผู้ใช้ (ตัวพิมพ์เล็ก) สำหรับช่วยบันทึก audit log */
+function getSelfEmail(): string {
+  const auth = getAuth();
+  const e =
+    auth.currentUser?.email ||
+    (typeof localStorage !== "undefined"
+      ? localStorage.getItem("approver_email") || ""
+      : "");
+  return (e || "").toLowerCase();
+}
+
+/** สร้าง URL: รองรับทั้ง path ภายใต้ BASE และ absolute URL (ขึ้นต้น http) */
+function buildUrl(path: string, query?: Record<string, any>) {
+  const usp = new URLSearchParams();
+  if (query) {
+    for (const [k, v] of Object.entries(query)) {
+      if (v === undefined || v === null || v === "") continue;
+      usp.append(k, String(v));
+    }
+  }
+  const q = usp.toString();
+  if (/^https?:\/\//i.test(path)) {
+    // absolute URL → ไม่ต่อ BASE
+    return `${path}${q ? `?${q}` : ""}`;
+  }
+  return `${FUNCTIONS_BASE}${path}${q ? `?${q}` : ""}`;
+}
+
+/** เรียก HTTP และจัดการ JSON + โยน error ที่มีรายละเอียด */
+async function request<T>(
+  path: string,
+  init?: RequestInit & { query?: Record<string, any>; json?: any; requireAuth?: boolean }
+): Promise<T> {
+  const requireAuth = init?.requireAuth ?? true;
+  const idToken = requireAuth ? await getIdTokenOrWait() : "";
+  const url = buildUrl(path, init?.query);
+
+  const res = await fetch(url, {
+    method: init?.method ?? (init?.json ? "POST" : "GET"),
+    mode: "cors",
+    credentials: "omit", // ไม่ใช้คุกกี้; ยืนยันตัวตนผ่าน Bearer token แทน
+    headers: {
+      ...(requireAuth ? { Authorization: `Bearer ${idToken}` } : {}),
+      "Content-Type": "application/json",
+      "x-requester-email": getSelfEmail(), // ใช้เพื่อ log ให้คนอ่านง่าย (ความจริงเรื่องตัวตนอยู่ที่ ID Token)
+      ...(init?.headers ?? {}),
+    },
+    body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body,
+  });
+
+  const text = await res.text();
+  let data: any = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = { ok: false, error: "invalid_json", raw: text };
+  }
+
+  if (!res.ok || (data && data.ok === false)) {
+    const status = res.status;
+    const msg = data?.error || data?.message || res.statusText || "unknown_error";
+    const err = new Error(`${status} ${msg}`);
+    (err as any).status = status;
+    (err as any).server = data;
+    throw err;
+  }
+  return data as T;
+}
+
+// -------------------- รูปแบบข้อมูล (บางส่วน) --------------------
+
+export interface RequestItem {
+  rid: string;
+  status: string;
+  createdAt?: number | any;
+  updatedAt?: any;
+  contractorName?: string;
+}
+
+export interface ListRequestsResp {
+  ok: true;
+  data: { items: RequestItem[] };
+}
+
+// -------------------- API เฉพาะงาน --------------------
+
+/** ดึงรายการคำขอ (ตัวอย่าง) */
+export async function apiListRequests(params: { status?: string; limit?: number } = {}) {
+  return request<ListRequestsResp>("/listRequests", {
+    query: { status: params.status ?? "", limit: params.limit ?? 25 },
+  });
+}
+
+/** ดึงรายละเอียดคำขอฝั่งแอดมิน */
+export async function apiGetRequestAdmin(rid: string) {
+  return request<any>("/getRequestAdmin", { query: { rid } });
+}
+
+/**
+ * อัปเดตสถานะคำขอ — ให้ตรงกับ backend: { rid, status: 'approved'|'rejected', note? }
+ * - รองรับส่งไปยัง absolute URL ผ่าน options.endpoint (เช่น VITE_UPDATE_STATUS_URL จาก Cloud Run)
+ */
+export async function apiUpdateStatus(opts: {
+  rid: string;
+  status: "approved" | "rejected";
+  note?: string;
+  endpoint?: string; // ถ้าระบุ จะเรียก URL นี้โดยตรง (ต้องรองรับ CORS เหมือนกัน)
+}) {
+  const body = { rid: opts.rid, status: opts.status, note: opts.note };
+  const pathOrUrl = opts.endpoint || "/updateStatus"; // ถ้า endpoint เป็น http จะวิ่งแบบ absolute
+  return request<any>(pathOrUrl, { method: "POST", json: body });
+}
+
+export { request };

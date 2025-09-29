@@ -1,0 +1,46 @@
+// ======================================================================
+// File: web/src/lib/approverHeaders.ts
+// เวอร์ชัน: 23/09/2025 19:10
+// หน้าที่: รวมส่วนหัว (headers) สำหรับทุก API ของ Admin/Approver ให้มี
+//          Authorization (Bearer), x-api-key, x-requester-email ครบ
+// เชื่อม auth ผ่าน "อะแดปเตอร์": ./firebase (getAuth) + ./auth (ถ้ามี)
+// หมายเหตุ: รักษาความลับ - อ่านคีย์จาก .env และ localStorage เท่านั้น
+// วันที่/เวลา (เขตเวลาไทย): 23/09/2025 19:10
+// ======================================================================
+
+import { getAuth } from "firebase/auth";
+
+/**
+ * getApproverHeaders
+ * รวม header มาตรฐานสำหรับเรียก Cloud Functions ฝั่ง Admin
+ * - Authorization: Bearer <ID_TOKEN>
+ * - x-api-key: จาก VITE_APPROVER_KEY (ห้ามฮาร์ดโค้ด)
+ * - x-requester-email: จาก localStorage('admin_requester_email' หรือ 'approver_email')
+ *
+ * [WHY] มาตรฐานเดียวแก้ปัญหา adminEmail=unknown ใน audit logs
+ *       และบังคับทุกเพจแนบตัวตนผู้เรียกใช้งาน
+ */
+export async function getApproverHeaders(extra: Record<string, string> = {}) {
+  const auth = getAuth();
+  const currentUser = auth.currentUser;
+  const idToken = currentUser ? await currentUser.getIdToken() : "";
+
+  // อ่านจาก ENV + localStorage
+  const apiKey = import.meta.env.VITE_APPROVER_KEY as string | undefined;
+  const envEmail = import.meta.env.VITE_APPROVER_EMAIL as string | undefined;
+
+  // รองรับสองคีย์ที่มีใช้ในโปรเจกต์: admin_requester_email / approver_email
+  const lsEmail =
+    localStorage.getItem("admin_requester_email") ||
+    localStorage.getItem("approver_email") ||
+    undefined;
+
+  const headers: Record<string, string> = {
+    ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+    ...(apiKey ? { "x-api-key": String(apiKey) } : {}),
+    ...(lsEmail || envEmail ? { "x-requester-email": String(lsEmail || envEmail) } : {}),
+    ...extra,
+  };
+
+  return headers;
+}

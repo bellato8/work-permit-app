@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>PDF Test — Work Permit</title>
+    <style>
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+             background: #0b1220; color: #e5e7eb; padding: 24px; }
+      .card { max-width: 720px; margin: 0 auto; background: #0f172a; border: 1px solid #1e293b;
+              border-radius: 16px; padding: 20px; }
+      h1 { margin: 0 0 12px 0; font-size: 20px; }
+      label { display: block; font-size: 14px; color: #94a3b8; margin-top: 12px; }
+      input { width: 100%; background:#0b1220; color:#e2e8f0; border:1px solid #1e293b;
+              border-radius:10px; padding:10px; margin-top:6px; }
+      .row { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .btn { display:inline-block; margin-top:16px; padding:10px 14px; border-radius:10px;
+             background:#22c55e; color:#052e16; border:1px solid #14532d; cursor:pointer; }
+      .muted { color:#94a3b8; font-size: 13px; margin-top: 8px; }
+      .version { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+                 font-size: 12px; color:#cbd5e1; margin-top: 6px; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>PDF Test — Work Permit</h1>
+
+      <div class="row">
+        <div>
+          <label>รหัสคำขอ (RID)
+            <input id="rid" value="WP-20250824-2NXN" />
+          </label>
+        </div>
+        <div>
+          <label>เบอร์โทร 4 ตัวท้าย (Last4)
+            <input id="last4" value="4435" />
+          </label>
+        </div>
+      </div>
+
+      <button class="btn" id="printBtn">พิมพ์ใบอนุญาต (PDF) จาก API</button>
+      <div class="muted">กดปุ่มนี้เพื่อดึงข้อมูลจาก <code>getStatus?pdf=1&last4=####</code> แล้วสร้าง PDF</div>
+      <div class="version" id="ver">loading…</div>
+    </div>
+
+    <script type="module">
+      // อธิบายคำอ่าน:
+      // import (อิม-พอร์ต) = ดึงโมดูลโค้ดมาใช้
+      import { printPermitFromGetStatus, PERMIT_PDF_VERSION } from '/src/utils/permitPdf.ts';
+
+      document.getElementById('ver').textContent =
+        'PDF module version: ' + (PERMIT_PDF_VERSION || '(unknown)');
+
+      document.getElementById('printBtn').addEventListener('click', async () => {
+        const rid = document.getElementById('rid').value.trim();
+        const last4 = document.getElementById('last4').value.trim();
+        try {
+          await printPermitFromGetStatus(rid, last4);
+        } catch (e) {
+          alert('พิมพ์ไม่สำเร็จ: ' + (e?.message || e));
+          console.error(e);
+        }
+      });
+    </script>
+  </body>
+</html>

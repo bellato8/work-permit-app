@@ -137,3 +137,28 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# --- Work Permit App: extras ---
+
+# Vite/React (web/)
+web/dist/
+web/.vite/
+# Vite env files (อย่า push คีย์ใด ๆ)
+web/.env
+web/.env.*
+!.env.example
+
+# Firebase CLI cache & logs (ควรเมิน)
+.firebase/
+firebase-debug.log
+
+# Firebase Functions (TypeScript build + env)
+functions/lib/
+functions/dist/
+functions/.tsbuildinfo
+functions/.env
+functions/.env.*    # ใช้ได้ แต่ห้ามใส่ความลับจริงลง git
+
+# Editor (ถ้าไม่อยากแชร์ตั้งค่า VS Code)
+.vscode/
+

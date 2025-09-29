@@ -1,0 +1,26 @@
+# --- อย่าเอาไฟล์ลับ/ขยะขึ้น Git ---
+# env (ตัวแปรสภาพแวดล้อม)
+.env
+.env.local
+.env.*.local
+
+# node & build outputs
+node_modules/
+dist/
+build/
+.tmp/
+
+# ระบบ/เครื่องมือ
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Firebase / Functions
+firebase-debug.log
+.firebaserc.local
+functions/node_modules/
+functions/lib/
+
+# อื่น ๆ ที่อาจสร้างระหว่างพัฒนา
+coverage/

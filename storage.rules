@@ -1,0 +1,23 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /requests/{rid}/{allPaths=**} {
+      allow write: if
+        request.auth != null ||
+        (
+          resource == null &&
+          request.resource != null &&
+          request.resource.size < 10 * 1024 * 1024 &&
+          (
+            request.resource.contentType.matches('image/.*') ||
+            request.resource.contentType == 'application/pdf'
+          )
+        );
+      // อ่านได้ถ้าล็อกอิน หรือถ้าเป็นรูปภาพ
+      allow read: if request.auth != null || resource.contentType.matches('image/.*');
+    }
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

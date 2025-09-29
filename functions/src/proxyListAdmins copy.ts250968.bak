@@ -1,0 +1,77 @@
+/**
+ * ======================================================================
+ * File: functions/src/proxyListAdmins.ts
+ * Purpose: Proxy กัน CORS สำหรับดึงรายชื่อผู้ใช้/ผู้ดูแล (list admins)
+ * Env:
+ *   - LIST_ADMINS_TARGET  = https://listadmins-xxxx.a.run.app
+ *   - APPROVER_KEY        = apl-2025
+ *   - DEFAULT_REQUESTER   = asm.sutthirak@gmail.com
+ * ======================================================================
+ */
+import { onRequest } from "firebase-functions/v2/https";
+
+const ALLOWED_ORIGINS = [/^https?:\/\/localhost:\d+$/, /imperialworld\.asia$/, /staging\.imperialworld\.asia$/];
+
+function corsHeaders(origin: string | undefined) {
+  const allowed =
+    origin &&
+    ALLOWED_ORIGINS.some((re) => {
+      try {
+        const u = new URL(origin);
+        return re.test(u.host) || re.test(origin);
+      } catch {
+        return re.test(origin);
+      }
+    });
+
+  const o = allowed ? origin! : "*";
+  return {
+    "Access-Control-Allow-Origin": o,
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Accept",
+    "Access-Control-Max-Age": "86400",
+  };
+}
+
+export const proxyListAdmins = onRequest(
+  { region: "asia-southeast1", cors: false },
+  async (req, res) => {
+    const headers = corsHeaders(req.headers.origin);
+    if (req.method === "OPTIONS") {
+      res.set(headers).status(204).send("");
+      return;
+    }
+
+    try {
+      const target = process.env.LIST_ADMINS_TARGET;
+      const key = process.env.APPROVER_KEY || "";
+      const defaultRequester = process.env.DEFAULT_REQUESTER || "dashboard@imperialworld.asia";
+
+      if (!target) {
+        res.set(headers).status(500).json({ ok: false, error: "Missing LIST_ADMINS_TARGET" });
+        return;
+      }
+
+      const requester = String(req.query.requester ?? defaultRequester);
+
+      // ส่วนนี้เลือกใช้ POST เช่นเดียวกับปลายทางจริง
+      const r = await fetch(target, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": key,
+          "x-requester-email": requester,
+        },
+        body: JSON.stringify({}),
+      });
+
+      const text = await r.text();
+      const contentType = r.headers.get("content-type") || "application/json; charset=utf-8";
+
+      res.set({ ...headers, "Content-Type": contentType });
+      res.status(r.status).send(text);
+    } catch (e: any) {
+      res.set(headers).status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  }
+);

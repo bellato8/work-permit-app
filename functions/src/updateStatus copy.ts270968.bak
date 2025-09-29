@@ -1,0 +1,143 @@
+// ======================================================================
+// File: functions/src/updateStatus.ts
+// โหมดใหม่: RBAC เท่านั้น (บังคับล็อกอินจริง) + รับเฉพาะ POST
+// อธิบายสั้นๆ: ผู้กดอนุมัติ/ไม่อนุมัติ ต้องล็อกอิน → ส่ง Firebase ID token
+//               แบ็กเอนด์ตรวจสิทธิ์ (approve|decide|manage_requests) แล้วบันทึก
+// ======================================================================
+
+import { onRequest } from "firebase-functions/v2/https";
+import { getApps, initializeApp } from "firebase-admin/app";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
+
+import { withCors } from "./withCors";
+import { emitAudit } from "./lib/emitAudit";
+import { requireCaps } from "./authz";
+
+if (!getApps().length) initializeApp();
+const db = getFirestore();
+
+// ---------------- utils ----------------
+function getClientIp(req: any) {
+  const xf = String(req.headers?.["x-forwarded-for"] || "");
+  return xf.split(",")[0].trim() || (req.socket as any)?.remoteAddress || "";
+}
+function getUA(req: any) {
+  return String(req.headers?.["user-agent"] || "");
+}
+function mustReason(s?: string) {
+  const v = (s ?? "").trim();
+  return v.length >= 2 ? v : "";
+}
+
+// ---------------- handler หลัก ----------------
+async function handler(req: any, res: any) {
+  // CORS preflight
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
+  // รับ “เฉพาะ POST” สำหรับการเปลี่ยนสถานะ (อ้างอิง OWASP Method Allowlist)
+  // https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html#restrict-http-methods
+  if (req.method !== "POST") {
+    res.status(405).json({ ok: false, error: "method_not_allowed" });
+    return;
+  }
+
+  // 1) RBAC gate: ต้องมีสิทธิ์ approve|decide|manage_requests
+  const gate = await requireCaps(req, ["approve", "decide", "manage_requests"]);
+  if (!gate.ok) {
+    res.status(gate.status).json({ ok: false, error: gate.error });
+    return;
+  }
+  const actorEmail = gate.email;
+
+  // 2) รับพารามิเตอร์จาก body
+  const { rid, status, reason } = (req.body || {}) as {
+    rid?: string;
+    status?: "approved" | "rejected" | "returned";
+    reason?: string;
+  };
+  if (!rid || !status) {
+    res.status(400).json({ ok: false, error: "bad_request", hint: "ต้องมี rid และ status" });
+    return;
+  }
+  if ((status === "rejected" || status === "returned") && !mustReason(reason)) {
+    res.status(400).json({ ok: false, error: "need_reason", hint: "กรอกเหตุผลอย่างน้อย 2 ตัวอักษร" });
+    return;
+  }
+
+  // 3) อ่านเอกสารเดิม
+  const docRef = db.collection("requests").doc(rid);
+  const snap = await docRef.get();
+  if (!snap.exists) {
+    res.status(404).json({ ok: false, error: "not_found" });
+    return;
+  }
+  const prev = snap.data() || {};
+  const previousStatus = String(prev.status || prev?.decision?.status || "pending");
+
+  // idempotent แบบเบาๆ: ถ้าสถานะเดิมเท่ากับใหม่ → ตอบ ok กลับเลย
+  if (previousStatus === status) {
+    res.json({
+      ok: true,
+      idempotent: true,
+      data: { rid, status, by: { email: actorEmail }, previousStatus }
+    });
+    return;
+  }
+
+  // 4) เตรียม patch
+  const now = FieldValue.serverTimestamp();
+  const patch: Record<string, any> = {
+    status,
+    updatedAt: now,
+    decision: {
+      status,
+      byEmail: actorEmail,
+      reason: status === "approved" ? "" : (reason || ""),
+      at: now,
+    },
+  };
+  if (status === "approved") {
+    patch.approvedByEmail = actorEmail;
+    patch.rejectedByEmail = FieldValue.delete();
+    patch.rejectionReason = FieldValue.delete();
+  } else if (status === "rejected" || status === "returned") {
+    patch.rejectedByEmail = actorEmail; // ใช้ฟิลด์เดิมเพื่อความเข้ากันได้
+    patch.rejectionReason = reason || "";
+    patch.approvedByEmail = FieldValue.delete();
+  }
+
+  await docRef.set(patch, { merge: true });
+
+  // 5) audit log
+  try {
+    await emitAudit(
+      status === "approved" ? "status_update_approved" : status === "rejected" ? "status_update_rejected" : "status_update_returned",
+      { email: actorEmail, role: gate.role },
+      { rid },
+      reason || "",
+      { ip: getClientIp(req), ua: getUA(req), previousStatus }
+    );
+  } catch (e) {
+    console.warn("[emitAudit] failed:", e);
+  }
+
+  res.json({
+    ok: true,
+    data: { rid, status, by: { email: actorEmail }, previousStatus }
+  });
+}
+
+// export (ปิด CORS ของ runtime เพราะเราครอบด้วย withCors เอง)
+export const updateStatus = onRequest(
+  { cors: false },
+  withCors(async (req, res) => {
+    try {
+      await handler(req, res);
+    } catch (e: any) {
+      console.error("updateStatus error:", e);
+      res.status(500).json({ ok: false, error: "internal_error" });
+    }
+  })
+);
