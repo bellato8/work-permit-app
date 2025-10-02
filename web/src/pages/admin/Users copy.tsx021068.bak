@@ -1,12 +1,15 @@
 // ======================================================================
 // File: web/src/pages/admin/Users.tsx
-// เวอร์ชัน: 2025-09-18 01:55 (Asia/Bangkok)
-// หน้าที่: จัดการผู้ใช้แอดมิน (ดู/เพิ่ม/แก้สิทธิ์/ปิดเปิด/ลบ/ส่งเชิญ) + UI gating ด้วยสิทธิ์สด
-// เชื่อม auth ผ่าน "อะแดปเตอร์": ../../hooks/useAuthzLive (อ่าน role/caps สด) และยังคงด่านเดิมจาก requester
-// หมายเหตุ:
-// - ทุกการเรียกฟังก์ชัน HTTP ใช้ POST + header: x-api-key, x-requester-email (+ fallback query key, requester)
-// - แถว legacy (ไม่มีอีเมลจริง) เป็น read-only เสมอ
-// - ปรับรวมระเบียนซ้ำอีเมลเดียวกัน ให้เลือก role ที่แรงกว่า (superadmin > admin > อื่น ๆ)
+// เวอร์ชัน: 29/09/2025 21:05 (Asia/Bangkok)
+// หน้าที่: จัดการผู้ใช้แอดมิน (ดู/เพิ่ม/แก้สิทธิ์/ปิดเปิด/ลบ/เชิญ)
+// เชื่อม auth ผ่าน "อะแดปเตอร์":
+//   - Firebase Auth (getIdToken) → แนบ Authorization: Bearer <ID_TOKEN>
+//   - โหมดเข้ากันได้ชั่วคราว: แนบ x-api-key (ถ้ามีใน .env/localStorage) + requester ทั้ง header+query
+// เหตุผล: ระหว่างย้ายไปใช้ ID Token เต็มรูปแบบ ฝั่ง backend บางตัวอาจยังเช็ค x-api-key → กัน 403
+// เอกสารอ้างอิง: Cloud Run end-user auth + verify Firebase ID token ฝั่งเซิร์ฟเวอร์
+//   - https://cloud.google.com/run/docs/authenticating/end-users
+//   - https://cloud.google.com/run/docs/tutorials/identity-platform
+//   - https://firebase.google.com/docs/auth/admin/verify-id-tokens
 // ======================================================================
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -26,11 +29,30 @@ import PowerSettingsNewRoundedIcon from "@mui/icons-material/PowerSettingsNewRou
 import SendRoundedIcon from "@mui/icons-material/SendRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 
-// --- เพิ่ม: ด่านสิทธิ์กลาง (อ่าน role/caps สด) + ปุ่ม/บล็อกที่กันสิทธิ์ได้ ---
 import useAuthzLive from "../../hooks/useAuthzLive";
 import { hasCap, isSuperadmin } from "../../lib/hasCap";
 import CapButton from "../../components/CapButton";
 import CapBlock from "../../components/CapBlock";
+
+// 🔐 Firebase — guard ให้แอปถูก initialize เสมอ ก่อนเรียก getAuth()
+import { getApps, initializeApp } from "firebase/app";
+try {
+  if (typeof window !== "undefined" && getApps().length === 0) {
+    initializeApp({
+      apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+      authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+      projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+      appId: import.meta.env.VITE_FIREBASE_APP_ID,
+    } as any);
+    // console.debug("[Users][init] Firebase app initialized by Users.tsx");
+  }
+} catch (e) {
+  // เงียบไว้ ถ้าโปรเจกต์คุณมีไฟล์ init ส่วนกลางอยู่แล้ว
+  // console.warn("[Users][init] Firebase init guard error:", e);
+}
+
+// 🔐 Firebase Auth — ใช้ดึง user และ ID Token
+import { getAuth, getIdToken, onAuthStateChanged } from "firebase/auth";
 
 // ---------- ประเภทข้อมูล ----------
 type Role = "superadmin" | "admin" | "approver" | "viewer";
@@ -44,7 +66,7 @@ type NewCaps = {
 };
 type Caps = LegacyCaps & NewCaps;
 type AdminRow = {
-  email: string; // อาจเป็น "" หากพบระเบียนเก่าไม่มีอีเมล
+  email: string;
   role: Role; caps: Caps; enabled?: boolean;
   name?: string; updatedBy?: string;
   updatedAt?: number | string | { _seconds?: number; _nanoseconds?: number };
@@ -67,36 +89,70 @@ const URLS = {
   invite: (import.meta.env.VITE_INVITE_ADMIN_URL as string)       || "",
 };
 
-// ---------- Utils ----------
-const getApproverKey = () =>
-  (localStorage.getItem("approver_key") || String(import.meta.env.VITE_APPROVER_KEY || "")).trim();
+// ======================================================================
+// 🔄 AUTH HELPERS: Bearer + (Compat) x-api-key
+// ======================================================================
+/** คืนค่า approver_key (เฉพาะกรณีเป็น ASCII ล้วน) เพื่อกัน fetch ล่มบน Firefox */
+function getLegacyKey(): string {
+  try {
+    const raw =
+      (localStorage.getItem("approver_key") ||
+        (import.meta.env.VITE_APPROVER_KEY as string) ||
+        ""
+      ).trim();
 
-const getRequesterEmail = () =>
-  (localStorage.getItem("admin_requester_email") || String(import.meta.env.VITE_APPROVER_EMAIL || "")).trim();
+    // อนุญาตเฉพาะอักขระ ASCII ที่พิมพ์ได้เท่านั้น (0x20-0x7E)
+    // กันเคสที่ใส่ข้อความไทยในคีย์ → ทำให้ fetch โยน ByteString error บน Firefox
+    const isPrintableASCII = /^[\x20-\x7E]*$/.test(raw);
+    return isPrintableASCII ? raw : "";
+  } catch {
+    return "";
+  }
+}
 
-// header มาตรฐาน
-const buildHeaders = (apiKey: string, requester: string) => ({
-  "Content-Type": "application/json",
-  "x-api-key": apiKey,
-  "x-requester-email": requester,
-});
+function currentRequesterEmail(): string {
+  const u = getAuth().currentUser;
+  if (u?.email) return u.email;
+  const env = (import.meta.env.VITE_APPROVER_EMAIL as string | undefined) || "";
+  return env.trim();
+}
 
-// เติม key & requester เป็น query (fallback กัน proxy ตัด header)
-const withKeyQuery = (url: string, key: string, requester: string) => {
+/** Header มาตรฐาน: Authorization (ID Token) + x-requester-email + (compat) x-api-key */
+async function authzHeaders(): Promise<Record<string, string>> {
+  const user = getAuth().currentUser;
+  if (!user) throw new Error("กรุณาเข้าสู่ระบบก่อนใช้งาน");
+  const token = await getIdToken(user);
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${token}`,
+  };
+  const requester = currentRequesterEmail();
+  if (requester) headers["x-requester-email"] = requester;
+
+  // โหมดเข้ากันได้: แนบ x-api-key เฉพาะเมื่อเป็น ASCII เท่านั้น
+  const legacyKey = getLegacyKey();
+  if (legacyKey) headers["x-api-key"] = legacyKey;
+
+  // debug เบาๆ
+  // console.debug("[Users][debug] authzHeaders()", { hasUser: !!user, email: requester, tokenLen: token?.length, hasApikey: !!legacyKey });
+
+  return headers;
+}
+
+/** เติม requester(+key ถ้ามี) เป็น query กัน proxy ตัด header และช่วย log ฝั่ง server */
+function withCompatQuery(url: string, requester: string, legacyKey?: string) {
   try {
     const u = new URL(url);
-    if (key) u.searchParams.set("key", key);
     if (requester) u.searchParams.set("requester", requester);
+    if (legacyKey) u.searchParams.set("key", legacyKey);
     return u.toString();
-  } catch {
-    return url;
-  }
-};
+  } catch { return url; }
+}
 
-// ตรวจอีเมล
+// ---------- Utils ----------
 const isEmail = (s: string) => /.+@.+\..+/.test(String(s || "").trim());
 
-// ฟอร์แมตเวลา
 const ms = (v: any) =>
   v == null ? null : typeof v === "number" ? v :
   v?._seconds ? v._seconds * 1000 :
@@ -107,10 +163,8 @@ const fmt = (d: any) => {
   return m == null ? "-" : new Date(m).toLocaleString("th-TH", { hour12: false });
 };
 
-// clone caps ปลอดภัย
 const cloneCaps = (c: Caps) => JSON.parse(JSON.stringify(c || {}));
 
-// จัดอันดับ role เพื่อใช้คัดเลือกเมื่อมีระเบียนซ้ำอีเมลเดียวกัน
 function roleRank(r?: string | null) {
   const s = (r ?? "").toLowerCase().trim();
   if (s === "superadmin") return 3;
@@ -184,41 +238,52 @@ export default function Users() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const [requester, setRequester] = useState(getRequesterEmail());
-  const [key, setKey] = useState(getApproverKey());
+  // requester ปัจจุบัน (อ่านจากผู้ที่ล็อกอิน)
+  const [requester, setRequester] = useState<string>(currentRequesterEmail());
 
+  // ช่องค้นหา + ฟอร์มเพิ่ม
   const [search, setSearch] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [newRole, setNewRole] = useState<Role>("viewer");
 
+  // สถานะทำงานรายแถว
   const [savingEmail, setSavingEmail] = useState("");
   const [togglingEmail, setTogglingEmail] = useState("");
   const [removingEmail, setRemovingEmail] = useState("");
 
+  // เชิญตั้งรหัสผ่าน
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteTarget, setInviteTarget] = useState("");
   const [inviteLoading, setInviteLoading] = useState(false);
-
   const [inviteResultOpen, setInviteResultOpen] = useState(false);
   const [inviteLink, setInviteLink] = useState("");
 
   const [snack, setSnack] = useState<{ open: boolean; ok?: boolean; msg: string }>({ open: false, msg: "" });
 
-  function saveRequester(v: string) { try { localStorage.setItem("admin_requester_email", v.trim()); } catch {} }
-  function saveKey(v: string)       { try { localStorage.setItem("approver_key", v.trim()); } catch {} }
-
-  // อ่านสิทธิ์สด (ด่านกลาง)
+  // === อ่านสิทธิ์สด (ด่านกลาง) ===
   const live = useAuthzLive() ?? {};
   const canManageUsersAuthz =
     isSuperadmin(live.role) || hasCap(live.caps, "manage_users", live.role);
+
+  // อัปเดต requester เมื่อสถานะล็อกอินเปลี่ยน
+  useEffect(() => {
+    const auth = getAuth();
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setRequester(u?.email || "");
+    });
+    return () => unsub();
+  }, []);
 
   // โหลดรายการผู้ใช้จาก API
   async function loadList() {
     if (!URLS.list) { setErr("ยังไม่ได้ตั้งค่า VITE_LIST_ADMINS_URL"); return; }
     setLoading(true); setErr(null);
     try {
-      const headers = buildHeaders(key, requester);
-      const res = await fetch(URLS.list, { method: "POST", headers, body: JSON.stringify({}) });
+      const headers = await authzHeaders();
+      const url = withCompatQuery(URLS.list, requester, getLegacyKey());
+      // console.debug("[Users][debug] loadList():", { url, requester, hasApikey: !!getLegacyKey() });
+      const res = await fetch(url, { method: "POST", headers, body: JSON.stringify({}) });
+      if (res.status === 401) throw new Error("กรุณาเข้าสู่ระบบก่อนใช้งาน");
       const j = await res.json().catch(() => ({}));
       if (!res.ok || j?.ok === false) throw new Error(j?.error || `โหลดรายการไม่สำเร็จ (HTTP ${res.status})`);
 
@@ -228,7 +293,6 @@ export default function Users() {
         Array.isArray(j) ? j : [];
 
       const tmp: AdminRow[] = arr.map((it: any) => {
-        // รับจาก email / emailLower เท่านั้น (ไม่ fallback เป็น id)
         const candidate = String(it.email ?? it.emailLower ?? "").trim().toLowerCase();
         const email = isEmail(candidate) ? candidate : "";
         const role = (String(it.role || "approver").toLowerCase() as Role);
@@ -237,14 +301,12 @@ export default function Users() {
         return { email, role, caps, name: it.name, enabled, updatedBy: it.updatedBy, updatedAt: it.updatedAt };
       });
 
-      // กันซ้ำด้วย "อีเมลจริง" และเลือก role ที่แรงกว่า
       const m = new Map<string, AdminRow>();
       for (const x of tmp) {
         if (!isEmail(x.email)) continue;
         const prev = m.get(x.email);
         if (!prev) m.set(x.email, x);
         else {
-          // เลือกตัวที่ role แรงกว่า / หรือ enabled=true
           const choose =
             roleRank(x.role) > roleRank(prev.role) ? x :
             roleRank(x.role) < roleRank(prev.role) ? prev :
@@ -252,7 +314,6 @@ export default function Users() {
           m.set(x.email, choose);
         }
       }
-      // เก็บรายการที่ไม่มีอีเมลไว้ด้วย (read-only)
       const legacy = tmp.filter(x => !isEmail(x.email));
       setRows([...m.values(), ...legacy]);
     } catch (e: any) {
@@ -263,14 +324,13 @@ export default function Users() {
   }
   useEffect(() => { loadList(); /* eslint-disable-next-line */ }, []);
 
-  // === คำนวณสิทธิ์ของ requester (frontend gating เดิม) ===
+  // === คำนวณสิทธิ์ของ requester (frontend gating เดิม + สิทธิ์สด) ===
   const requesterLower = (requester || "").trim().toLowerCase();
   const me = useMemo(
     () => rows.find(r => r.email.toLowerCase() === requesterLower),
     [rows, requesterLower]
   );
   const canManageUsersLegacy = !!(me && (me.role === "superadmin" || (me.caps?.manageUsers === true)));
-  // รวมผลด่านใหม่+ด่านเดิม (ผ่านอย่างใดอย่างหนึ่งก็ได้)
   const canManageUsers = !!(canManageUsersAuthz || canManageUsersLegacy);
 
   // เพิ่มผู้มีสิทธิ์ใหม่
@@ -281,12 +341,9 @@ export default function Users() {
       return;
     }
     try {
-      const headers = buildHeaders(key, requester);
-      const u = withKeyQuery(URLS.add, key, requester);
-      const res = await fetch(u, {
-        method: "POST", headers,
-        body: JSON.stringify({ key, requester, email: newEmail.trim(), role: newRole })
-      });
+      const headers = await authzHeaders();
+      const u = withCompatQuery(URLS.add, requester, getLegacyKey());
+      const res = await fetch(u, { method: "POST", headers, body: JSON.stringify({ email: newEmail.trim(), role: newRole }) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || j?.ok === false) throw new Error(j?.error || `เพิ่มไม่สำเร็จ (HTTP ${res.status})`);
       setNewEmail(""); setNewRole("viewer");
@@ -303,9 +360,9 @@ export default function Users() {
     if (!isEmail(email)) { setSnack({ open: true, ok: false, msg: "ระเบียนนี้ไม่มีอีเมลที่ถูกต้อง (legacy)" }); return; }
     try {
       setSavingEmail(email);
-      const headers = buildHeaders(key, requester);
-      const u = withKeyQuery(URLS.update, key, requester);
-      const res = await fetch(u, { method: "POST", headers, body: JSON.stringify({ key, requester, email, role, caps }) });
+      const headers = await authzHeaders();
+      const u = withCompatQuery(URLS.update, requester, getLegacyKey());
+      const res = await fetch(u, { method: "POST", headers, body: JSON.stringify({ email, role, caps }) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || j?.ok === false) throw new Error(j?.error || `บันทึกไม่สำเร็จ (HTTP ${res.status})`);
       await loadList();
@@ -323,9 +380,9 @@ export default function Users() {
     if (!isEmail(email)) { setSnack({ open: true, ok: false, msg: "ระเบียนนี้ไม่มีอีเมลที่ถูกต้อง (legacy)" }); return; }
     try {
       setTogglingEmail(email);
-      const headers = buildHeaders(key, requester);
-      const u = withKeyQuery(URLS.update, key, requester);
-      const res = await fetch(u, { method: "POST", headers, body: JSON.stringify({ key, requester, email, enabled }) });
+      const headers = await authzHeaders();
+      const u = withCompatQuery(URLS.update, requester, getLegacyKey());
+      const res = await fetch(u, { method: "POST", headers, body: JSON.stringify({ email, enabled }) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || j?.ok === false) throw new Error(j?.error || `อัปเดตไม่สำเร็จ (HTTP ${res.status})`);
       await loadList();
@@ -343,9 +400,9 @@ export default function Users() {
     if (!isEmail(email)) { setSnack({ open: true, ok: false, msg: "ระเบียนนี้ไม่มีอีเมลที่ถูกต้อง (legacy)" }); return; }
     try {
       setRemovingEmail(email);
-      const headers = buildHeaders(key, requester);
-      const u = withKeyQuery(URLS.remove, key, requester);
-      const res = await fetch(u, { method: "POST", headers, body: JSON.stringify({ key, requester, email }) });
+      const headers = await authzHeaders();
+      const u = withCompatQuery(URLS.remove, requester, getLegacyKey());
+      const res = await fetch(u, { method: "POST", headers, body: JSON.stringify({ email }) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || j?.ok === false) throw new Error(j?.error || `ลบไม่สำเร็จ (HTTP ${res.status})`);
       await loadList();
@@ -367,11 +424,11 @@ export default function Users() {
     if (!isEmail(inviteTarget)) { setSnack({ open: true, ok: false, msg: "ระเบียนนี้ไม่มีอีเมลที่ถูกต้อง (legacy)" }); return; }
     try {
       setInviteLoading(true);
-      const headers = buildHeaders(key, requester);
-      const u = withKeyQuery(URLS.invite, key, requester);
+      const headers = await authzHeaders();
+      const u = withCompatQuery(URLS.invite, requester, getLegacyKey());
       const res = await fetch(u, { method: "POST", headers, body: JSON.stringify({ email: inviteTarget }) });
       const json = await res.json().catch(() => ({}));
-      if (res.status === 401) throw new Error("unauthorized (ตรวจสอบ approver_key และ requester)");
+      if (res.status === 401) throw new Error("กรุณาเข้าสู่ระบบก่อนใช้งาน");
       if (!res.ok || json?.ok === false) throw new Error(json?.error || `HTTP ${res.status}`);
       const link = String(json?.link || "");
       setInviteLink(link);
@@ -397,14 +454,12 @@ export default function Users() {
 
   return (
     <Container maxWidth="lg" sx={{ py: 2 }}>
-      {/* Banner โหมดอ่านอย่างเดียว (หาก requester ไม่มีสิทธิ์) */}
       {!canManageUsers && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           โหมดอ่านอย่างเดียว: ผู้ใช้ <b>{requester || "-"}</b> ไม่มีสิทธิ์ <code>manage_users</code> — ปุ่มแก้ไข/บันทึก/ลบ/เชิญถูกปิดไว้
         </Alert>
       )}
 
-      {/* แถบบน */}
       <Stack
         direction={{ xs: "column", md: "row" }}
         justifyContent="space-between"
@@ -413,7 +468,7 @@ export default function Users() {
         sx={{ mb: 2 }}
       >
         <Typography variant="h5" fontWeight={700}>Work Permit / Admin</Typography>
-        <Stack direction={{ xs: "column", md: "row" }} spacing={1} alignItems={{ xs: "stretch", md: "center" }}>
+        <Stack direction="row" spacing={1} alignItems="center">
           <TextField
             label="ค้นหา (อีเมล/ชื่อ)"
             size="small"
@@ -428,27 +483,12 @@ export default function Users() {
               ),
             }}
           />
-          <TextField
-            label="Requester (อีเมลผู้แก้ไข)"
-            size="small"
-            value={requester}
-            onChange={e => setRequester(e.target.value)}
-            onBlur={e => saveRequester(e.target.value)}
-          />
-          <TextField
-            label="Key (x-api-key)"
-            size="small"
-            value={key}
-            onChange={e => setKey(e.target.value)}
-            onBlur={e => saveKey(e.target.value)}
-          />
           <Tooltip title="รีเฟรชรายการ">
             <span><IconButton onClick={loadList} disabled={loading}><RefreshRoundedIcon /></IconButton></span>
           </Tooltip>
         </Stack>
       </Stack>
 
-      {/* เพิ่มผู้ใช้: ห่อด้วย CapBlock + ใช้ CapButton */}
       <CapBlock cap="manage_users" deniedText="คุณไม่มีสิทธิ์เพิ่ม/แก้ผู้ดูแล (manage_users)">
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ xs: "stretch", sm: "center" }}>
@@ -475,7 +515,7 @@ export default function Users() {
               variant="contained"
               startIcon={<AddRoundedIcon />}
               onClick={onAdd}
-              disabled={loading}  // ยังเคารพสถานะโหลด
+              disabled={loading}
             >
               เพิ่ม
             </CapButton>
@@ -484,7 +524,6 @@ export default function Users() {
         </Paper>
       </CapBlock>
 
-      {/* รายการผู้ใช้ */}
       <Box
         sx={{
           display: "grid",
@@ -624,13 +663,13 @@ export default function Users() {
       {!!err && <Alert severity="error" sx={{ mt: 2 }}>{err}</Alert>}
 
       {/* Dialog ยืนยันส่งคำเชิญ */}
-      <Dialog open={inviteOpen} onClose={closeInvite}>
+      <Dialog open={inviteOpen} onClose={() => { if (!inviteLoading) setInviteOpen(false); }}>
         <DialogTitle>ส่งลิงก์ตั้ง/รีเซ็ตรหัสผ่าน</DialogTitle>
         <DialogContent>
           <DialogContentText>ระบบจะส่งอีเมลคำเชิญไปยัง <b>{inviteTarget}</b> กรุณายืนยัน</DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={closeInvite} disabled={inviteLoading}>ยกเลิก</Button>
+          <Button onClick={() => { if (!inviteLoading) setInviteOpen(false); }} disabled={inviteLoading}>ยกเลิก</Button>
           <CapButton cap="manage_users" variant="contained" startIcon={<SendRoundedIcon />} onClick={doInvite} disabled={inviteLoading}>
             ยืนยันส่ง
           </CapButton>

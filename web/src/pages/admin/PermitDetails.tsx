@@ -1,105 +1,30 @@
 // ======================================================================
 // File: web/src/pages/admin/PermitDetails.tsx
-// เวอร์ชัน: 28/09/2025 07:55 (TH)
-// หน้าที่: หน้าแอดมินดูรายละเอียดใบงาน + อนุมัติ/ไม่อนุมัติ (แนบ Firebase ID Token)
-// หมายเหตุเวอร์ชันนี้:
-//   • แก้ “ช่องที่ 4: บันทึกเวลา/ผู้ตัดสิน” ให้จัดวาง 2 คอลัมน์ตามรูป (ไม่ยืดเต็มแถว)
-//   • แก้การแปลงเวลา + แสดงวันที่แบบ พ.ศ. (Buddhist Era) ให้ถูกต้อง
+// เวอร์ชัน: 2025-10-02 (ใช้ Bearer token + รองรับ Signed URL ก่อนเสมอ)
+// หน้าที่: แสดงรายละเอียดใบงาน + อนุมัติ/ไม่อนุมัติ (ดึงรูปจาก signed URL ถ้ามี)
+// หมายเหตุ:
+//   • เรียก getRequestAdmin ด้วย Authorization: Bearer <ID token>
+//   • ถ้าฝั่ง API แนบ images.idCardCleanUrl / idCardStampedUrl / workers[].cleanUrl|stampedUrl
+//     จะใช้ URL เหล่านั้นก่อน (ไม่ต้องมีสิทธิ์อ่าน Storage ตรง)
+//   • ถ้า API ไม่มี URL เหล่านี้ ค่อย fallback ไปขอ getDownloadURL จาก Storage ตามเดิม
 // ======================================================================
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-
-// ⛏️ เรียก API เปลี่ยนสถานะ (ฝั่งเว็บจะไปแนบ ID Token เอง)
 import { updateStatusApi } from "../../utils/updateStatus";
-
 import { ref, getDownloadURL } from "firebase/storage";
-import { storage, ensureSignedIn } from "../../lib/firebase";
-
-// ✅ อ่านสิทธิ์ (claims) ฝั่งเว็บ เพื่อตัดสินใจซ่อน/โชว์ปุ่ม
+import { storage, ensureSignedIn, auth } from "../../lib/firebase";
 import { canDecide } from "../../lib/getClaims";
-
-// Components
 import ImageViewer from "../../components/ImageViewer";
-
-// PDF
 import { useReactToPrint } from "react-to-print";
 
-// =============== UI helpers (Modal + Toast) ===============
 function classNames(...xs: (string | false | undefined)[]) {
   return xs.filter(Boolean).join(" ");
 }
 
-type ConfirmBoxProps = {
-  open: boolean;
-  tone?: "emerald" | "rose" | "amber" | "indigo";
-  title: string;
-  message?: string;
-  confirmText?: string;
-  cancelText?: string;
-  busy?: boolean;
-  onClose: () => void;
-  onConfirm: () => void | Promise<void>;
-};
-function ConfirmBox({
-  open, tone = "emerald", title, message,
-  confirmText = "ยืนยัน", cancelText = "ยกเลิก", busy, onClose, onConfirm,
-}: ConfirmBoxProps) {
-  if (!open) return null;
-  const toneBg: Record<string, string> = {
-    emerald: "bg-emerald-100 text-emerald-700 ring-emerald-200",
-    rose: "bg-rose-100 text-rose-700 ring-rose-200",
-    amber: "bg-amber-100 text-amber-700 ring-amber-200",
-    indigo: "bg-indigo-100 text-indigo-700 ring-indigo-200",
-  };
-  const toneBtn: Record<string, string> = {
-    emerald: "bg-emerald-600 hover:bg-emerald-700",
-    rose: "bg-rose-600 hover:bg-rose-700",
-    amber: "bg-amber-600 hover:bg-amber-700",
-    indigo: "bg-indigo-600 hover:bg-indigo-700",
-  };
-  return (
-    <div className="fixed inset-0 z-[60]">
-      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="absolute inset-0 flex items-center justify-center p-4">
-        <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200 animate-[fadeIn_120ms_ease-out]">
-          <div className="p-6">
-            <div className="flex items-start gap-3">
-              <div className={classNames("inline-flex h-12 w-12 items-center justify-center rounded-xl ring-1", toneBg[tone])}>
-                <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
-                  <path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                </svg>
-              </div>
-              <div className="min-w-0">
-                <div className="text-lg font-semibold">{title}</div>
-                {message && <p className="mt-1 text-slate-600">{message}</p>}
-              </div>
-            </div>
-            <div className="mt-6 flex items-center justify-end gap-3">
-              <button
-                onClick={onClose}
-                disabled={busy}
-                className="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-60"
-              >
-                {cancelText}
-              </button>
-              <button
-                onClick={onConfirm}
-                disabled={busy}
-                className={classNames("px-3 py-2 rounded-lg text-white disabled:opacity-60", toneBtn[tone])}
-              >
-                {busy ? "กำลังบันทึก..." : confirmText}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 type ToastKind = "success" | "error" | "info";
 type ToastItem = { id: number; kind: ToastKind; title: string; message?: string };
+
 function Toasts({ items, onDismiss }: { items: ToastItem[]; onDismiss: (id:number)=>void }) {
   const tone: Record<ToastKind, string> = {
     success: "border-emerald-300 bg-emerald-50 text-emerald-800",
@@ -132,9 +57,7 @@ function Toasts({ items, onDismiss }: { items: ToastItem[]; onDismiss: (id:numbe
     </div>
   );
 }
-// =============== /UI helpers ===============
 
-// ---------- ประเภทข้อมูล ----------
 type AnyRec = Record<string, any>;
 type WorkerItem = {
   name?: string;
@@ -144,22 +67,11 @@ type WorkerItem = {
   photoUrl?: string;
 };
 
-// ---------- คอนฟิก (ส่วนอ่านรายละเอียดเดิม) ----------
 const GET_DETAIL_URL = import.meta.env.VITE_GET_REQUEST_ADMIN_URL as string;
-const APPROVER_KEY_ENV = (import.meta.env.VITE_APPROVER_KEY as string) || "";
-function getApproverKey(): string {
-  try {
-    const k = localStorage.getItem("approver_key");
-    if (k && k.trim()) return k.trim();
-  } catch {}
-  return APPROVER_KEY_ENV.trim();
-}
 
 // ---------- เวลา/รูปแบบสตริง ----------
 function tsToMillis(input: any): number | undefined {
   if (input == null) return undefined;
-
-  // Firestore Timestamp objects
   if (typeof input === "object") {
     if (typeof (input as any)._seconds === "number") {
       const secs = (input as any)._seconds as number;
@@ -172,39 +84,24 @@ function tsToMillis(input: any): number | undefined {
       return secs * 1000 + Math.round(nanos / 1e6);
     }
   }
-
-  // Number: auto-detect seconds vs milliseconds
-  if (typeof input === "number") {
-    // วินาที ≈ 1e9–2e9, มิลลิวินาที ≈ 1e12–1e13 (ปีปัจจุบัน ~1.7e12)
-    return input > 1e12 ? input : input * 1000;
-  }
-
-  // String (รองรับ ISO/UTC)
+  if (typeof input === "number") return input > 1e12 ? input : input * 1000;
   if (typeof input === "string") {
     const t = Date.parse(input);
     if (!Number.isNaN(t)) return t;
   }
-
   return undefined;
 }
 
-// แปลงวันที่เป็น พ.ศ. (Buddhist Era) แบบสั้น + เวลา 24 ชม.
 function fmtDateTimeBE(input: any): string {
   const ms = tsToMillis(input);
   if (!ms) return "-";
   try {
     const d = new Date(ms);
-
-    // ใช้ปฏิทินพุทธศักราชโดยตรง (ส่วนใหญ่รองรับ)
     const fmt = new Intl.DateTimeFormat("th-TH-u-ca-buddhist", {
-      year: "numeric",
-      month: "short",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
+      year: "numeric", month: "short", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false,
     });
-    return fmt.format(d).replace(/\u200f/g, ""); // ล้างเครื่องหมายควบคุมที่บางเบราว์เซอร์เติมมา
+    return fmt.format(d).replace(/\u200f/g, "");
   } catch {
     return "-";
   }
@@ -276,34 +173,14 @@ const joinAddress = (detail?: AnyRec, requester?: AnyRec): string => {
   const joined = [detailStr, sub, dist, prov].filter(Boolean).join(" ");
   return (joined || fromString || "-").trim();
 };
-function collectWorkers(data: AnyRec): WorkerItem[] {
-  const arr =
-    (Array.isArray(data?.workers) && data.workers) ||
-    (Array.isArray(data?.team) && data.team) ||
-    (Array.isArray(data?.members) && data.members) ||
-    [];
-  return arr
-    .map((w: any) => {
-      if (!w) return {};
-      if (typeof w === "string") return { name: w };
-      return {
-        name: w.name || w.fullname || [w.firstname, w.lastname].filter(Boolean).join(" "),
-        citizenId: w.citizenId || w.idCard || w.cid || w.documentId || w.idNumber || w.docNo || w.cardNo,
-        isSupervisor: !!(w.isSupervisor || w.supervisor),
-        photoPath: w.photoPath || w.idcardPath || w.storagePath || w.imagePath,
-        photoUrl: w.photoUrl || w.imageUrl || w.avatar,
-      } as WorkerItem;
-    })
-    .filter((x) => x && (x.name || x.citizenId || x.photoPath || x.photoUrl));
-}
 
-// ---- helper: path -> URL (พร้อม cache ง่ายๆ) ----
 const urlCache = new Map<string, string>();
 async function pathToUrl(path?: string, url?: string): Promise<string | null> {
   if (url && /^https?:\/\//i.test(url)) return url;
   if (!path) return null;
   if (urlCache.has(path)) return urlCache.get(path)!;
   try {
+    await ensureSignedIn();
     const storageRef = ref(storage, path);
     const dl = await getDownloadURL(storageRef);
     urlCache.set(path, dl);
@@ -322,20 +199,11 @@ export default function PermitDetails() {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<AnyRec | null>(null);
   const [err, setErr] = useState<string | null>(null);
-
-  // ⛳ เช็คสิทธิ์เพื่อซ่อนปุ่ม (true = มีสิทธิ์, false = ไม่มีสิทธิ์)
   const [allowed, setAllowed] = useState<boolean | null>(null);
 
   const [decideBusy, setDecideBusy] = useState(false);
   const [showReject, setShowReject] = useState(false);
   const [reason, setReason] = useState("");
-
-  // Confirm & Toast states
-  const [confirmBox, setConfirmBox] = useState<{
-    open: boolean; tone?: "emerald" | "rose" | "amber" | "indigo";
-    title: string; message?: string;
-    confirmText?: string; cancelText?: string;
-  }>({ open: false, title: "" });
 
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   function pushToast(kind: ToastKind, title: string, message?: string) {
@@ -344,11 +212,9 @@ export default function PermitDetails() {
     setTimeout(() => setToasts((xs) => xs.filter((t) => t.id !== id)), 3000);
   }
 
-  // preview photos
   const [requesterPhotoUrl, setRequesterPhotoUrl] = useState<string | null>(null);
   const [workerThumbUrls, setWorkerThumbUrls] = useState<string[]>([]);
 
-  // ---------- พื้นที่ "พิมพ์" ----------
   const printAreaRef = useRef(null);
   const handlePrint = useReactToPrint({
     contentRef: printAreaRef,
@@ -361,7 +227,7 @@ export default function PermitDetails() {
     `,
   });
 
-  // ✅ โหลดสิทธิ์ (claims) เพื่อซ่อนปุ่ม — ทำครั้งเดียวหลังเข้าหน้า
+  // โหลดสิทธิ์ (ไว้ซ่อนปุ่ม)
   useEffect(() => {
     let live = true;
     canDecide()
@@ -370,36 +236,58 @@ export default function PermitDetails() {
     return () => { live = false; };
   }, []);
 
-  // โหลดรายละเอียด (คงวิธีเดิมเพื่อ compat)
+  // ---------- โหลดรายละเอียด (ใช้ Bearer token) ----------
   useEffect(() => {
     let alive = true;
     const controller = new AbortController();
-    async function run() {
-      setErr(null);
-      setLoading(true);
-      setData(null);
 
-      const key = getApproverKey();
+    async function run() {
+      setErr(null); setLoading(true); setData(null);
+
       if (!ridParam) { setErr("ไม่พบ RID ใน URL"); setLoading(false); return; }
-      if (!GET_DETAIL_URL || !key) { setErr("ยังไม่ได้ตั้งค่า VITE_GET_REQUEST_ADMIN_URL หรือ approver_key"); setLoading(false); return; }
+      if (!GET_DETAIL_URL) { setErr("ยังไม่ได้ตั้งค่า VITE_GET_REQUEST_ADMIN_URL"); setLoading(false); return; }
 
       try {
+        await ensureSignedIn();
+        const token = await auth.currentUser?.getIdToken();
         const base = GET_DETAIL_URL.replace(/\/+$/, "");
-        const url = `${base}?requestId=${encodeURIComponent(ridParam)}&apiKey=${encodeURIComponent(key)}`;
-        const res = await fetch(url, { method: "GET", headers: { Accept: "application/json", "Content-Type": "application/json" }, signal: controller.signal });
+        const url = `${base}?requestId=${encodeURIComponent(ridParam)}`;
+
+        const res = await fetch(url, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          signal: controller.signal,
+        });
+
+        if (res.status === 401) throw new Error("ไม่ได้รับอนุญาต (ต้องเข้าสู่ระบบ)");
+        if (res.status === 403) {
+          const j = await res.json().catch(()=>null);
+          if (j?.code === "need_view_permits") {
+            throw new Error("บัญชีนี้ยังไม่มีสิทธิ์ดูรายละเอียดใบงาน (ติดต่อผู้ดูแลให้เพิ่มสิทธิ์ viewPermits/viewAll/approve)");
+          }
+          throw new Error("ถูกปฏิเสธการเข้าถึง");
+        }
         if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+
         const json = await res.json().catch(() => ({}));
         if (!json?.success && !json?.data) throw new Error(json?.error || json?.message || `ไม่พบข้อมูล RID: ${ridParam}`);
-        if (alive) setData(json.data || json);
-      } catch (e: any) {
+
+        if (!alive) return;
+        setData(json.data || json);
+      } catch (e:any) {
         if (!alive || e?.name === "AbortError") return;
-        console.error(`[getRequestAdmin Error]`, e);
+        console.error("[getRequestAdmin] error:", e);
         setErr(e?.message || String(e));
       } finally {
         if (alive) setLoading(false);
       }
     }
     run();
+
     return () => { alive = false; controller.abort(); };
   }, [ridParam]);
 
@@ -413,7 +301,25 @@ export default function PermitDetails() {
   const systemsThai = useMemo(() => systemsToThai(bs || w?.systems || detail?.systems), [bs, w?.systems, detail?.systems]);
   const addressFull = useMemo(() => joinAddress(loc, req), [loc, req]);
 
-  const workersRaw = useMemo(() => collectWorkers(detail), [detail]);
+  const workersRaw = useMemo(() => {
+    const arr =
+      (Array.isArray(detail?.workers) && detail.workers) ||
+      (Array.isArray(detail?.team) && detail.team) ||
+      (Array.isArray(detail?.members) && detail.members) ||
+      [];
+    return arr.map((w:any) => {
+      if (!w) return {};
+      if (typeof w === "string") return { name: w };
+      return {
+        name: w.name || w.fullname || [w.firstname, w.lastname].filter(Boolean).join(" "),
+        citizenId: w.citizenId || w.idCard || w.cid || w.documentId || w.idNumber || w.docNo || w.cardNo,
+        isSupervisor: !!(w.isSupervisor || w.supervisor),
+        photoPath: w.photoPath || w.idcardPath || w.storagePath || w.imagePath,
+        photoUrl: w.photoUrl || w.imageUrl || w.avatar,
+      } as WorkerItem;
+    }).filter((x:any)=>x && (x.name || x.citizenId || x.photoPath || x.photoUrl));
+  }, [detail]);
+
   const [workersResolved, setWorkersResolved] = useState<(WorkerItem & { __idFull?: string })[]>([]);
   useEffect(() => {
     const rows = workersRaw.map((p) => ({ ...p, __idFull: toFullId(p) }));
@@ -422,52 +328,65 @@ export default function PermitDetails() {
 
   const statusText = thaiStatus(detail?.status || detail?.decision?.status);
 
-  // --- ดึง URL รูป "ผู้ขอ" และ "ผู้ร่วมงาน" ---
+  // ---------- จัดรูปสำหรับแสดง (ใช้ Signed URL ก่อน ถ้ามี) ----------
   useEffect(() => {
     let alive = true;
     async function resolvePreviewImages() {
-      await ensureSignedIn(); // ให้ได้สิทธิ์อ่าน storage ถ้ามี rule จำกัด
-      const requesterCandidates: { path?: string; url?: string }[] = [
-        { path: detail?.images?.idCardStampedPath },
-        { path: detail?.images?.idCardCleanPath },
-        { path: req?.photoPath, url: req?.photoUrl },
-      ];
-      for (const c of requesterCandidates) {
-        const u = await pathToUrl(c.path, c.url);
-        if (u) { if (!alive) return; setRequesterPhotoUrl(u); break; }
-      }
-      const imgs: string[] = [];
-      const imgWorkers = Array.isArray(detail?.images?.workers) ? detail.images.workers : [];
-      for (let i = 0; i < workersResolved.length; i++) {
-        const imgDef = imgWorkers[i] || {};
-        const cands: { path?: string; url?: string }[] = [
-          { path: imgDef.cleanPath }, { path: imgDef.stampedPath },
-          { path: workersResolved[i]?.photoPath, url: workersResolved[i]?.photoUrl },
+      // ผู้ยื่นคำขอ: ใช้ URL ที่ API แนบมาก่อน
+      const idStamped = detail?.images?.idCardStampedUrl;
+      const idClean   = detail?.images?.idCardCleanUrl;
+      if (idStamped || idClean) {
+        if (!alive) return;
+        setRequesterPhotoUrl(idStamped || idClean);
+      } else {
+        // fallback storage path
+        const candidates: { path?: string; url?: string }[] = [
+          { path: detail?.images?.idCardStampedPath },
+          { path: detail?.images?.idCardCleanPath },
+          { path: req?.photoPath, url: req?.photoUrl },
         ];
+        for (const c of candidates) {
+          const u = await pathToUrl(c.path, c.url);
+          if (!alive) return;
+          if (u) { setRequesterPhotoUrl(u); break; }
+        }
+      }
+
+      // ผู้ร่วมงาน: ถ้า API แนบ cleanUrl/stampedUrl มา ให้ใช้ก่อน
+      const imgs: string[] = [];
+      const workersImgFromApi = Array.isArray(detail?.images?.workers) ? detail.images.workers : [];
+      for (let i = 0; i < workersResolved.length; i++) {
+        const apiDef = workersImgFromApi[i] || {};
         let got: string | null = null;
-        for (const c of cands) { got = await pathToUrl(c.path, c.url); if (got) break; }
+        if (apiDef?.cleanUrl || apiDef?.stampedUrl) {
+          got = apiDef.cleanUrl || apiDef.stampedUrl || null;
+        } else {
+          const cands: { path?: string; url?: string }[] = [
+            { path: apiDef?.cleanPath }, { path: apiDef?.stampedPath },
+            { path: workersResolved[i]?.photoPath, url: workersResolved[i]?.photoUrl },
+          ];
+          for (const c of cands) { got = await pathToUrl(c.path, c.url); if (got) break; }
+        }
         imgs.push(got || "");
       }
       if (!alive) return;
-      const changed = imgs.length !== workerThumbUrls.length || imgs.some((u, i) => u !== workerThumbUrls[i]);
-      if (changed) setWorkerThumbUrls(imgs);
+      setWorkerThumbUrls(imgs);
     }
     if (data) resolvePreviewImages();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, workersResolved.length]);
 
-  // ---------------- ปุ่มอนุมัติ/ไม่อนุมัติ (เรียก API ใหม่แนบ ID Token) ----------------
+  // ---------------- ปุ่มอนุมัติ/ไม่อนุมัติ ----------------
   async function doApprove() {
     const rid = (detail?.rid || detail?.requestId || detail?.id || ridParam) as string;
     if (!rid) return;
     setDecideBusy(true);
     try {
-      await updateStatusApi({ rid, status: "approved" }); // ✅ ใช้ API ใหม่
+      await updateStatusApi({ rid, status: "approved" });
       pushToast("success", "บันทึกสำเร็จ", "อนุมัติเรียบร้อย");
-      setConfirmBox((c) => ({ ...c, open: false }));
       setTimeout(() => location.reload(), 700);
-    } catch (e: any) {
+    } catch (e:any) {
       pushToast("error", "อนุมัติไม่สำเร็จ", e?.message || String(e));
     } finally {
       setDecideBusy(false);
@@ -480,28 +399,28 @@ export default function PermitDetails() {
     if (!rid) return;
     setDecideBusy(true);
     try {
-      await updateStatusApi({ rid, status: "rejected", reason: reason.trim() }); // ✅ ใช้ API ใหม่
+      await updateStatusApi({ rid, status: "rejected", reason: reason.trim() });
       pushToast("success", "บันทึกสำเร็จ", "ไม่อนุมัติเรียบร้อย");
       setShowReject(false);
       setReason("");
       setTimeout(() => location.reload(), 700);
-    } catch (e: any) {
+    } catch (e:any) {
       pushToast("error", "ไม่อนุมัติไม่สำเร็จ", e?.message || String(e));
     } finally {
       setDecideBusy(false);
     }
   }
 
-  // รวมรูปสำหรับ ImageViewer (worker + attachments/photos)
+  // รวมรูปสำหรับ ImageViewer (รวม workers + attachments/photos)
   const workerImageItems = useMemo(() => {
     const items: { label: string; path?: string; url?: string }[] = [];
     const arr = Array.isArray(detail?.images?.workers) ? detail.images.workers : [];
-    arr.forEach((w: any, i: number) => {
+    arr.forEach((w:any, i:number) => {
       const idx = i + 1;
-      if (w?.cleanPath) items.push({ label: `ผู้ร่วมงาน #${idx} (ก่อนประทับ)`, path: w.cleanPath });
-      if (w?.stampedPath) items.push({ label: `ผู้ร่วมงาน #${idx} (หลังประทับ)`, path: w.stampedPath });
-      if (w?.cleanUrl) items.push({ label: `ผู้ร่วมงาน #${idx} (ก่อนประทับ)`, url: w.cleanUrl });
+      if (w?.cleanUrl)   items.push({ label: `ผู้ร่วมงาน #${idx} (ก่อนประทับ)`, url: w.cleanUrl });
       if (w?.stampedUrl) items.push({ label: `ผู้ร่วมงาน #${idx} (หลังประทับ)`, url: w.stampedUrl });
+      if (w?.cleanPath && !w?.cleanUrl)     items.push({ label: `ผู้ร่วมงาน #${idx} (ก่อนประทับ)`, path: w.cleanPath });
+      if (w?.stampedPath && !w?.stampedUrl) items.push({ label: `ผู้ร่วมงาน #${idx} (หลังประทับ)`, path: w.stampedPath });
     });
     return items;
   }, [detail?.images?.workers]);
@@ -517,9 +436,10 @@ export default function PermitDetails() {
       url: photo.url,
       path: photo.path,
     })),
-  ]), [detail?.attachments, detail?.photos]);
+    ...(detail?.images?.idCardCleanUrl ? [{ label: "บัตรประชาชน (ก่อนประทับ)", url: detail.images.idCardCleanUrl }] : []),
+    ...(detail?.images?.idCardStampedUrl ? [{ label: "บัตรประชาชน (หลังประทับ)", url: detail.images.idCardStampedUrl }] : []),
+  ]), [detail?.attachments, detail?.photos, detail?.images?.idCardCleanUrl, detail?.images?.idCardStampedUrl]);
 
-  // ----------------------------- UI -----------------------------
   return (
     <div>
       {/* Header */}
@@ -560,7 +480,7 @@ export default function PermitDetails() {
 
       {loading && (
         <div className="mt-4 p-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-700">
-          กำลังโหลดข้อมูลจาก getRequestAdmin API...
+          กำลังโหลดข้อมูลจาก API...
         </div>
       )}
 
@@ -575,7 +495,219 @@ export default function PermitDetails() {
         </div>
       )}
 
-      {/* Modal: ไม่อนุมัติ */}
+      {/* ปุ่มตัดสินใจ (โชว์เฉพาะคนที่มีสิทธิ์ และสถานะกำลังรอดำเนินการ) */}
+      {!loading && !err && data && thaiStatus(detail?.status || detail?.decision?.status) === "รอดำเนินการ" && allowed && (
+        <div className="mt-4 flex flex-wrap items-center gap-3 no-print">
+          <button
+            onClick={doApprove}
+            disabled={decideBusy}
+            className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl disabled:bg-gray-400"
+          >
+            {decideBusy ? "กำลังบันทึก..." : "อนุมัติ"}
+          </button>
+          <button onClick={() => setShowReject(true)} disabled={decideBusy} className="inline-flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-xl disabled:bg-gray-400">
+            ไม่อนุมัติ
+          </button>
+        </div>
+      )}
+      {!loading && !err && data && thaiStatus(detail?.status || detail?.decision?.status) === "รอดำเนินการ" && allowed === false && (
+        <div className="mt-4 text-sm text-slate-600 no-print">
+          * คุณไม่มีสิทธิ์ในการตัดสินคำขอนี้ (ปุ่มถูกซ่อน)
+        </div>
+      )}
+
+      {/* เนื้อหา */}
+      {!loading && !err && data && (
+        <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4" ref={printAreaRef}>
+          {/* ซ้าย: ข้อมูลหลัก */}
+          <section className="lg:col-span-2 space-y-4">
+            {/* 1) ผู้ยื่นคำขอ */}
+            <div className="rounded-2xl border border-gray-200 bg-white p-4">
+              <div className="text-base font-semibold mb-2">1) ผู้ยื่นคำขอ</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2 text-sm">
+                  <div>
+                    <span className="text-slate-500">ชื่อ-นามสกุล</span>
+                    <div className="font-medium">
+                      {detail?.requester?.fullname || detail?.requester?.name || detail?.contractorName || detail?.requesterName || "-"}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">บริษัท</span>
+                    <div className="font-medium">{detail?.requester?.company || detail?.company || detail?.contractorCompany || "-"}</div>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">อีเมล</span>
+                    <div className="font-medium">{detail?.requester?.email || detail?.email || "-"}</div>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">เบอร์โทร</span>
+                    <div className="font-medium">{detail?.requester?.phone || detail?.phone || "-"}</div>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">ที่อยู่</span>
+                    <div className="font-medium">{addressFull}</div>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">เลขบัตร/เอกสาร</span>
+                    <div className="font-medium">{toFullId(detail?.requester || {})}</div>
+                  </div>
+                </div>
+                <div className="flex items-start justify-center">
+                  <div className="w-40 h-40 rounded-xl border border-dashed border-slate-300 text-slate-400 flex items-center justify-center text-sm overflow-hidden bg-slate-50">
+                    {requesterPhotoUrl ? (
+                      <img
+                        src={requesterPhotoUrl}
+                        alt="ผู้ยื่นคำขอ"
+                        className="w-full h-full object-cover"
+                        loading="eager"
+                        decoding="async"
+                        fetchPriority="high"
+                      />
+                    ) : (
+                      <>รูปผู้ขอ<br/>(ดูในไฟล์แนบ)</>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 2) รายละเอียดงาน/สถานที่/เวลา */}
+            <div className="rounded-2xl border border-gray-200 bg-white p-4">
+              <div className="text-base font-semibold mb-2">2) รายละเอียดงาน/สถานที่/เวลา</div>
+              <div className="grid md:grid-cols-2 gap-2 text-sm">
+                <div>
+                  <div className="text-gray-500">ประเภทงาน</div>
+                  <div className="font-medium">{detail?.work?.type || detail?.jobType || detail?.workType || detail?.type || "-"}</div>
+                </div>
+                <div>
+                  <div className="text-gray-500">พื้นที่ปฏิบัติงาน</div>
+                  <div className="font-medium">{detail?.work?.area || detail?.area || "-"}</div>
+                </div>
+                <div>
+                  <div className="text-gray-500">ชั้น/โซน</div>
+                  <div className="font-medium">{detail?.work?.floor || detail?.floor || "-"}</div>
+                </div>
+                <div>
+                  <div className="text-gray-500">ช่วงเวลา</div>
+                  <div className="font-medium">
+                    {text(detail?.work?.from || detail?.time?.start || detail?.from || detail?.startAt)} —{" "}
+                    {text(detail?.work?.to || detail?.time?.end || detail?.to || detail?.endAt)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-gray-500">งานร้อน (Hot Work)</div>
+                  <div className="font-medium">{detail?.work?.hotWork || detail?.hotWork ? "มี" : "ไม่มี"}</div>
+                </div>
+                <div>
+                  <div className="text-gray-500">ระบบอาคารที่เกี่ยวข้อง</div>
+                  <div className="font-medium">{systemsThai}</div>
+                </div>
+                <div className="md:col-span-2">
+                  <div className="text-gray-500">อุปกรณ์นำเข้า/ออก</div>
+                  <div className="font-medium">
+                    {(detail?.work?.equipments?.has ? detail?.work?.equipments?.details || "มี (ไม่ได้ระบุ)" : "ไม่มี") || detail?.equipment || "-"}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 3) ผู้ร่วมงาน */}
+            <div className="rounded-2xl border border-gray-200 bg-white p-4">
+              <div className="text-base font-semibold mb-2">3) รายชื่อผู้ร่วมงาน ({workersResolved.length} คน)</div>
+              {workersResolved.length === 0 ? (
+                <div className="text-sm text-gray-500">— ไม่มีข้อมูลผู้ร่วมงาน —</div>
+              ) : (
+                <div className="grid md:grid-cols-2 gap-3">
+                  {workersResolved.map((p, i) => (
+                    <div key={i} className="flex gap-3 items-center rounded-2xl border border-slate-200/70 bg-white/60 p-3">
+                      <div className="w-14 h-14 flex-shrink-0 rounded-xl border border-slate-200 overflow-hidden bg-slate-100">
+                        {workerThumbUrls[i] ? (
+                          <img
+                            src={workerThumbUrls[i]}
+                            alt={`ผู้ร่วมงาน ${p.name || ""}`}
+                            className="w-full h-full object-cover"
+                            loading="eager"
+                            decoding="async"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs">
+                            รูปถ่าย
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-medium truncate">{p.name || "-"}</div>
+                        <div className="text-slate-500 text-sm">เลขเอกสาร: {p.__idFull || "-"}</div>
+                        {p.isSupervisor && (
+                          <span className="inline-block mt-1 px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 text-xs">
+                            ผู้ควบคุม
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 4) เวลา/ผู้ตัดสิน */}
+            <div className="rounded-2xl border border-gray-200 bg-white p-4">
+              <div className="text-base font-semibold mb-2">4) บันทึกเวลา/ผู้ตัดสิน</div>
+              <div className="grid md:grid-cols-2 gap-2 text-sm">
+                <div>
+                  <div className="text-gray-500">สร้างเมื่อ</div>
+                  <div className="font-medium">{fmtDateTimeBE(detail?.createdAt)}</div>
+                </div>
+                <div>
+                  <div className="text-gray-500">อัปเดตล่าสุด</div>
+                  <div className="font-medium">{fmtDateTimeBE(detail?.updatedAt || detail?.decision?.at)}</div>
+                </div>
+                <div>
+                  <div className="text-gray-500">ผู้ตัดสิน</div>
+                  <div className="font-medium">
+                    {detail?.decision?.by?.displayName
+                      ? `${detail.decision.by.displayName} (${detail.decision.by.email || "-"})`
+                      : (detail?.decision?.byEmail || detail?.approvedByEmail || detail?.rejectedByEmail || "-")}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-gray-500">ผลล่าสุด</div>
+                  <div className="font-medium">{thaiStatus(detail?.status || detail?.decision?.status)}</div>
+                </div>
+                {(detail?.decision?.reason || detail?.rejectionReason) && (
+                  <div className="md:col-span-2">
+                    <div className="text-gray-500">เหตุผล</div>
+                    <div className="font-medium">{detail?.decision?.reason || detail?.rejectionReason}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* ขวา: ImageViewer */}
+          <ImageViewer
+            images={[...workerImageItems, ...attachmentImageItems]}
+            idCardCleanPath={detail?.images?.idCardCleanPath}
+            idCardStampedPath={detail?.images?.idCardStampedPath}
+            idCardCleanUrl={detail?.images?.idCardCleanUrl}
+            idCardStampedUrl={detail?.images?.idCardStampedUrl}
+            className="lg:col-span-1"
+          />
+        </div>
+      )}
+
+      {!loading && !err && !data && (
+        <div className="mt-6 p-8 text-center text-gray-500">
+          <div className="text-lg font-medium">ไม่พบข้อมูล</div>
+          <div className="text-sm mt-2">RID: {ridParam}</div>
+          <button onClick={() => window.location.reload()} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+            โหลดข้อมูลใหม่
+          </button>
+        </div>
+      )}
+
+      {/* Modal ไม่อนุมัติ */}
       {showReject && (
         <div className="fixed inset-0 z-[60] no-print">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={()=>!decideBusy && setShowReject(false)} />
@@ -622,246 +754,6 @@ export default function PermitDetails() {
           </div>
         </div>
       )}
-
-      {/* ---- พื้นที่จะพิมพ์ ---- */}
-      <div ref={printAreaRef}>
-        {/* ✅ ซ่อนปุ่มถ้าไม่มีสิทธิ์ + แสดงเฉพาะตอนยัง "รอดำเนินการ" */}
-        {!loading && !err && data && statusText === "รอดำเนินการ" && allowed && (
-          <div className="mt-4 flex flex-wrap items-center gap-3 no-print">
-            <button
-              onClick={() => {
-                const rid = (detail?.rid || detail?.requestId || detail?.id || ridParam) as string;
-                setConfirmBox({
-                  open: true,
-                  tone: "emerald",
-                  title: "ยืนยันการอนุมัติ",
-                  message: `คุณต้องการอนุมัติ RID: ${rid} ใช่ไหม?`,
-                  confirmText: "ยืนยันอนุมัติ",
-                  cancelText: "ยกเลิก",
-                });
-              }}
-              disabled={decideBusy}
-              className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl disabled:bg-gray-400"
-            >
-              {decideBusy ? "กำลังบันทึก..." : "อนุมัติ"}
-            </button>
-            <button onClick={() => setShowReject(true)} disabled={decideBusy} className="inline-flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-xl disabled:bg-gray-400">
-              ไม่อนุมัติ
-            </button>
-          </div>
-        )}
-
-        {/* ถ้า allowed === false แสดงโน้ตเล็กๆ เพื่อความเข้าใจ */}
-        {!loading && !err && data && statusText === "รอดำเนินการ" && allowed === false && (
-          <div className="mt-4 text-sm text-slate-600 no-print">
-            * คุณไม่มีสิทธิ์ในการตัดสินคำขอนี้ (ปุ่มถูกซ่อน)
-          </div>
-        )}
-
-        {!loading && !err && data && (
-          <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* ซ้าย: ข้อมูลหลัก */}
-            <section className="lg:col-span-2 space-y-4">
-              {/* 1) ผู้ยื่นคำขอ */}
-              <div className="rounded-2xl border border-gray-200 bg-white p-4">
-                <div className="text-base font-semibold mb-2">1) ผู้ยื่นคำขอ</div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2 text-sm">
-                    <div>
-                      <span className="text-slate-500">ชื่อ-นามสกุล</span>
-                      <div className="font-medium">
-                        {detail?.requester?.fullname || detail?.requester?.name || detail?.contractorName || detail?.requesterName || "-"}
-                      </div>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">บริษัท</span>
-                      <div className="font-medium">{detail?.requester?.company || detail?.company || detail?.contractorCompany || "-"}</div>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">อีเมล</span>
-                      <div className="font-medium">{detail?.requester?.email || detail?.email || "-"}</div>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">เบอร์โทร</span>
-                      <div className="font-medium">{detail?.requester?.phone || detail?.phone || "-"}</div>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">ที่อยู่</span>
-                      <div className="font-medium">{addressFull}</div>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">เลขบัตร/เอกสาร</span>
-                      <div className="font-medium">{toFullId(detail?.requester || {})}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-start justify-center">
-                    <div className="w-40 h-40 rounded-xl border border-dashed border-slate-300 text-slate-400 flex items-center justify-center text-sm overflow-hidden bg-slate-50">
-                      {requesterPhotoUrl ? (
-                        <img
-                          src={requesterPhotoUrl}
-                          alt="ผู้ยื่นคำขอ"
-                          className="w-full h-full object-cover"
-                          loading="eager"
-                          decoding="async"
-                          fetchPriority="high"
-                        />
-                      ) : (
-                        <>รูปผู้ขอ<br/>(ดูในไฟล์แนบ)</>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 2) งาน/สถานที่/เวลา */}
-              <div className="rounded-2xl border border-gray-200 bg-white p-4">
-                <div className="text-base font-semibold mb-2">2) รายละเอียดงาน/สถานที่/เวลา</div>
-                <div className="grid md:grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <div className="text-gray-500">ประเภทงาน</div>
-                    <div className="font-medium">{detail?.work?.type || detail?.jobType || detail?.workType || detail?.type || "-"}</div>
-                  </div>
-                  <div>
-                    <div className="text-gray-500">พื้นที่ปฏิบัติงาน</div>
-                    <div className="font-medium">{detail?.work?.area || detail?.area || "-"}</div>
-                  </div>
-                  <div>
-                    <div className="text-gray-500">ชั้น/โซน</div>
-                    <div className="font-medium">{detail?.work?.floor || detail?.floor || "-"}</div>
-                  </div>
-                  <div>
-                    <div className="text-gray-500">ช่วงเวลา</div>
-                    <div className="font-medium">
-                      {text(detail?.work?.from || detail?.time?.start || detail?.from || detail?.startAt)} —{" "}
-                      {text(detail?.work?.to || detail?.time?.end || detail?.to || detail?.endAt)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-gray-500">งานร้อน (Hot Work)</div>
-                    <div className="font-medium">{detail?.work?.hotWork || detail?.hotWork ? "มี" : "ไม่มี"}</div>
-                  </div>
-                  <div>
-                    <div className="text-gray-500">ระบบอาคารที่เกี่ยวข้อง</div>
-                    <div className="font-medium">{systemsThai}</div>
-                  </div>
-                  <div className="md:col-span-2">
-                    <div className="text-gray-500">อุปกรณ์นำเข้า/ออก</div>
-                    <div className="font-medium">
-                      {(detail?.work?.equipments?.has ? detail?.work?.equipments?.details || "มี (ไม่ได้ระบุ)" : "ไม่มี") || detail?.equipment || "-"}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 3) ผู้ร่วมงาน */}
-              <div className="rounded-2xl border border-gray-200 bg-white p-4">
-                <div className="text-base font-semibold mb-2">3) รายชื่อผู้ร่วมงาน ({workersResolved.length} คน)</div>
-                {workersResolved.length === 0 ? (
-                  <div className="text-sm text-gray-500">— ไม่มีข้อมูลผู้ร่วมงาน —</div>
-                ) : (
-                  <div className="grid md:grid-cols-2 gap-3">
-                    {workersResolved.map((p, i) => (
-                      <div key={i} className="flex gap-3 items-center rounded-2xl border border-slate-200/70 bg-white/60 p-3">
-                        <div className="w-14 h-14 flex-shrink-0 rounded-xl border border-slate-200 overflow-hidden bg-slate-100">
-                          {workerThumbUrls[i] ? (
-                            <img
-                              src={workerThumbUrls[i]}
-                              alt={`ผู้ร่วมงาน ${p.name || ""}`}
-                              className="w-full h-full object-cover"
-                              loading="eager"
-                              decoding="async"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs">
-                              รูปถ่าย
-                            </div>
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="font-medium truncate">{p.name || "-"}</div>
-                          <div className="text-slate-500 text-sm">เลขเอกสาร: {p.__idFull || "-"}</div>
-                          {p.isSupervisor && (
-                            <span className="inline-block mt-1 px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 text-xs">
-                              ผู้ควบคุม
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* 4) เวลา/ผู้ตัดสิน (ปรับตามรูป + พ.ศ.) */}
-              <div className="rounded-2xl border border-gray-200 bg-white p-4">
-                <div className="text-base font-semibold mb-2">4) บันทึกเวลา/ผู้ตัดสิน</div>
-                <div className="grid md:grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <div className="text-gray-500">สร้างเมื่อ</div>
-                    <div className="font-medium">{fmtDateTimeBE(detail?.createdAt)}</div>
-                  </div>
-                  <div>
-                    <div className="text-gray-500">อัปเดตล่าสุด</div>
-                    <div className="font-medium">{fmtDateTimeBE(detail?.updatedAt || detail?.decision?.at)}</div>
-                  </div>
-
-                  <div>
-                    <div className="text-gray-500">ผู้ตัดสิน</div>
-                    <div className="font-medium">
-                      {detail?.decision?.by?.displayName
-                        ? `${detail.decision.by.displayName} (${detail.decision.by.email || "-"})`
-                        : (detail?.decision?.byEmail || detail?.approvedByEmail || detail?.rejectedByEmail || "-")}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="text-gray-500">ผลล่าสุด</div>
-                    <div className="font-medium">{statusText}</div>
-                  </div>
-
-                  {(detail?.decision?.reason || detail?.rejectionReason) && (
-                    <div className="md:col-span-2">
-                      <div className="text-gray-500">เหตุผล</div>
-                      <div className="font-medium">{detail?.decision?.reason || detail?.rejectionReason}</div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </section>
-
-            {/* ขวา: ImageViewer */}
-            <ImageViewer
-              images={[...workerImageItems, ...attachmentImageItems]}
-              idCardCleanPath={detail?.images?.idCardCleanPath}
-              idCardStampedPath={detail?.images?.idCardStampedPath}
-              className="lg:col-span-1"
-            />
-          </div>
-        )}
-
-        {!loading && !err && !data && (
-          <div className="mt-6 p-8 text-center text-gray-500">
-            <div className="text-lg font-medium">ไม่พบข้อมูล</div>
-            <div className="text-sm mt-2">RID: {ridParam}</div>
-            <button onClick={() => window.location.reload()} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-              โหลดข้อมูลใหม่
-            </button>
-          </div>
-        )}
-      </div>
-      {/* ---- /พื้นที่พิมพ์ ---- */}
-
-      <ConfirmBox
-        open={confirmBox.open}
-        tone={confirmBox.tone}
-        title={confirmBox.title}
-        message={confirmBox.message}
-        confirmText={confirmBox.confirmText}
-        cancelText={confirmBox.cancelText}
-        busy={decideBusy}
-        onClose={() => !decideBusy && setConfirmBox((c) => ({ ...c, open: false }))}
-        onConfirm={doApprove}
-      />
 
       <Toasts items={toasts} onDismiss={(id)=>setToasts(xs=>xs.filter(t=>t.id!==id))} />
     </div>

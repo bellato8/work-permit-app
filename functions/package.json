@@ -4,10 +4,15 @@
   "engines": {
     "node": "20"
   },
+  "private": true,
   "scripts": {
     "build": "tsc",
-    "serve": "npm run build && firebase emulators:start --only functions",
-    "deploy": "npm run build && firebase deploy --only functions",
+    "serve": "npm run build && npx firebase-tools@latest emulators:start --only functions",
+    "deploy": "npm run build && npx firebase-tools@latest deploy --only functions",
+    "deploy:one": "npm run build && npx firebase-tools@latest deploy --only",
+    "deploy:getRequestAdmin": "npm run build && npx firebase-tools@latest deploy --only functions:getRequestAdmin",
+    "login": "npx firebase-tools@latest login",
+    "projects:list": "npx firebase-tools@latest projects:list",
     "lint": "echo \"(optional) add eslint here\""
   },
   "dependencies": {
@@ -28,6 +33,5 @@
     "@types/qrcode": "^1.5.5",
     "tsx": "^4.20.6",
     "typescript": "^5.9.2"
-  },
-  "private": true
+  }
 }

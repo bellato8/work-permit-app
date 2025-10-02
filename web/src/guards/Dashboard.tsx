@@ -22,7 +22,7 @@ import PeopleAltOutlinedIcon from "@mui/icons-material/PeopleAltOutlined";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 
 // ใช้ auth ของโปรเจกต์
-import { auth } from "../../lib/firebase";
+import { auth } from "../lib/firebase";
 
 // ---------- ประเภทข้อมูล ----------
 type RequestItem = {

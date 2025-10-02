@@ -23,6 +23,9 @@
 // [WHY] ไฟล์จริงคือ adminUsers.ts ซึ่ง export ชื่อ listAdmins
 
 export { updateStatus } from "./updateStatus";
+export { getRequestAdmin } from "./getRequestAdmin";
+export { updateAdminRole } from "./updateAdminRole";
+
 
 
 // NOTE: มีไฟล์ onRequestCreatedNotifyApprovers.ts ด้วย

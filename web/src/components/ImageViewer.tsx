@@ -1,26 +1,32 @@
 // ============================================================
 // ไฟล์: web/src/components/ImageViewer.tsx
-// หน้าที่: แสดงรูปภาพ ID Card + รูปอื่นๆ จาก Firebase Storage (แบบเร็วขึ้น)
-// หมายเหตุ:
-//  - ใช้ loading="eager" เพื่อตัดอาการเบราว์เซอร์ดีเลย์ onLoad
-//  - มี cache สำหรับ path -> URL กัน getDownloadURL ซ้ำ
-//  - ensureSignedIn() เรียกครั้งเดียวก่อน resolve ทั้งชุด
+// หน้าที่: แสดงรูปภาพ ID Card + รูปอื่นๆ (รองรับทั้ง URL ที่เซ็นแล้ว และ path)
+// จุดเน้น:
+//  - ถ้ามี URL ที่เซ็นมาแล้ว (…Url) จะใช้ก่อน → โหลดไว ไม่ต้องขอใหม่
+//  - ถ้าไม่มี URL ค่อย fallback ไปขอจาก path
+//  - คงเลย์เอาต์เดิม, คง loading="eager" เหมือนเดิม
 // ============================================================
 
-import React, { useState, useEffect, useRef } from 'react';
-import { ref, getDownloadURL } from 'firebase/storage';
-import { storage, ensureSignedIn } from '../lib/firebase';
+import React, { useState, useEffect, useRef } from "react";
+import { ref, getDownloadURL } from "firebase/storage";
+import { storage, ensureSignedIn } from "../lib/firebase";
 
+// ------- ชนิดข้อมูล -------
 interface ImageData {
   label: string;
   path?: string;
   url?: string;
 }
 
-interface ImageViewerProps {
+export interface ImageViewerProps {
   images?: ImageData[];
+  // เดิมมีแค่ path
   idCardCleanPath?: string;
   idCardStampedPath?: string;
+  // ➕ ใหม่: รองรับ URL ที่เซ็นแล้ว
+  idCardCleanUrl?: string;
+  idCardStampedUrl?: string;
+
   className?: string;
 }
 
@@ -47,12 +53,17 @@ async function pathToUrl(path: string): Promise<string | null> {
   }
 }
 
-// Helper: resolve URL จาก path หรือ url ที่ให้มา
+// แปลง path/url ให้กลายเป็น URL พร้อมใช้
 async function resolveImageUrl(path?: string, existingUrl?: string): Promise<string | null> {
+  // ถ้าให้ URL มาตรง ๆ และดูเป็น http/https ก็ใช้เลย
   if (existingUrl && /^https?:\/\//i.test(existingUrl)) return existingUrl;
-  if (path && !/^https?:\/\//i.test(path)) {
-    return await pathToUrl(path);
-  }
+
+  // เผื่อกรณีเผลอส่ง path ที่จริง ๆ เป็น URL มาในช่อง path
+  if (path && /^https?:\/\//i.test(path)) return path;
+
+  // กรณีเหลือเป็น path จริง ๆ
+  if (path) return await pathToUrl(path);
+
   return null;
 }
 
@@ -60,6 +71,8 @@ export default function ImageViewer({
   images = [],
   idCardCleanPath,
   idCardStampedPath,
+  idCardCleanUrl,
+  idCardStampedUrl,
   className = "",
 }: ImageViewerProps) {
   const [resolvedImages, setResolvedImages] = useState<ResolvedImage[]>([]);
@@ -73,20 +86,28 @@ export default function ImageViewer({
     async function loadImages() {
       setLoading(true);
 
-      // ✅ ล็อกอินครั้งเดียวก่อนดึง URL ทั้งชุด
+      // ล็อกอินครั้งเดียวก่อนดึง URL ทั้งชุด (กรณีต้องไปขอจาก path)
       await ensureSignedIn();
 
       const allImages: ImageData[] = [];
 
-      // ID Card (ให้รูปหลังประทับแสดงก่อนถ้ามี)
-      if (idCardStampedPath) {
-        allImages.push({ label: 'บัตรประชาชน (หลังประทับ)', path: idCardStampedPath });
+      // --- ID Card: ให้ URL (ที่เซ็นแล้ว) มาก่อน ถ้าไม่มีค่อยใช้ path ---
+      if (idCardStampedUrl || idCardStampedPath) {
+        allImages.push({
+          label: "บัตรประชาชน (หลังประทับ)",
+          url: idCardStampedUrl,
+          path: idCardStampedUrl ? undefined : idCardStampedPath,
+        });
       }
-      if (idCardCleanPath) {
-        allImages.push({ label: 'บัตรประชาชน (ก่อนประทับ)', path: idCardCleanPath });
+      if (idCardCleanUrl || idCardCleanPath) {
+        allImages.push({
+          label: "บัตรประชาชน (ก่อนประทับ)",
+          url: idCardCleanUrl,
+          path: idCardCleanUrl ? undefined : idCardCleanPath,
+        });
       }
 
-      // รูปอื่นๆ ต่อท้าย
+      // --- รูปอื่น ๆ ต่อท้ายตามเดิม ---
       allImages.push(...images);
 
       // แปลงทั้งหมดเป็น URL แบบขนาน
@@ -95,22 +116,26 @@ export default function ImageViewer({
           const url = await resolveImageUrl(img.path, img.url);
           return {
             label: img.label,
-            url: url || '',
+            url: url || "",
             isLoaded: false,
             hasError: !url,
-          };
+          } as ResolvedImage;
         })
       );
 
-      // เก็บเฉพาะรูปที่มี url จริง
-      const valid = resolved.filter((x) => x.url);
+      // เก็บเฉพาะรูปที่มี url จริง + กันซ้ำด้วย URL
+      const uniq = new Map<string, ResolvedImage>();
+      for (const r of resolved) {
+        if (!r.url) continue;
+        if (!uniq.has(r.url)) uniq.set(r.url, r);
+      }
 
       if (!alive) return;
-      setResolvedImages(valid);
+      setResolvedImages(Array.from(uniq.values()));
       setLoading(false);
     }
 
-    // กันการยิงซ้ำโดยไม่จำเป็นบน dev/strict mode
+    // กันการยิงซ้ำบน dev/strict mode
     if (firstRun.current) {
       firstRun.current = false;
       loadImages();
@@ -118,8 +143,11 @@ export default function ImageViewer({
       loadImages();
     }
 
-    return () => { alive = false; };
-  }, [images, idCardCleanPath, idCardStampedPath]);
+    return () => {
+      alive = false;
+    };
+    // ➕ เพิ่ม dependency ของ URL ใหม่ด้วย
+  }, [images, idCardCleanPath, idCardStampedPath, idCardCleanUrl, idCardStampedUrl]);
 
   const handleImageLoad = (index: number) => {
     setResolvedImages((prev) =>
@@ -147,8 +175,8 @@ export default function ImageViewer({
       <div className={`rounded-2xl border border-gray-200 bg-white p-4 ${className}`}>
         <div className="text-base font-semibold mb-2">ไฟล์แนบ/รูปภาพ</div>
         <div className="text-sm text-gray-500 p-8 text-center">
-          — ไม่มีรูป/ไฟล์แนบ — 
-          <div className="text-xs mt-2 opacity-70">(ตรวจสอบ Storage Rules หรือ path)</div>
+          — ไม่มีรูป/ไฟล์แนบ —
+          <div className="text-xs mt-2 opacity-70">(ตรวจสอบสิทธิ์หรือ path/URL)</div>
         </div>
       </div>
     );
@@ -189,13 +217,12 @@ export default function ImageViewer({
                     src={img.url}
                     alt={img.label}
                     className={`w-full h-full object-contain transition-opacity ${
-                      img.isLoaded ? 'opacity-100' : 'opacity-0'
+                      img.isLoaded ? "opacity-100" : "opacity-0"
                     }`}
-                    // 🔧 โหลดทันที (ตัดปัญหา lazy ที่ดีเลย์ onLoad)
+                    // โหลดทันที (คงพฤติกรรมเดิม)
                     loading="eager"
                     decoding="async"
-                    // ให้รูปแรก ๆ มี priority สูงหน่อย
-                    fetchPriority={idx < 2 ? 'high' as any : 'auto' as any}
+                    fetchPriority={idx < 2 ? ("high" as any) : ("auto" as any)}
                     onLoad={() => handleImageLoad(idx)}
                     onError={() => handleImageError(idx)}
                   />

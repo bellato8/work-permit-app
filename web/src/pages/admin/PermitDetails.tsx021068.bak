@@ -1,144 +1,36 @@
 // ======================================================================
 // File: web/src/pages/admin/PermitDetails.tsx
-// เวอร์ชัน: 2025-09-20 20:45 (TH)
-// หน้าที่: หน้าแอดมินดูรายละเอียด + อนุมัติ/ไม่อนุมัติ โดยส่ง Firebase ID Token
-// เชื่อม auth ผ่าน "อะแดปเตอร์ (adapter)": firebase/auth (เว็บ) → ฝั่งฟังก์ชันตรวจ verifyIdToken
-// หมายเหตุ:
-//   - เปลี่ยนจาก approveRequest/rejectRequest (แบบคีย์) → updateStatusApi (แนบ ID Token)
-//   - Header: Authorization (ออโทไรเซชัน/ส่วนอนุญาต) = Bearer (แบร์เรอร์/ผู้ถือ) <ID Token>
-//   - ยังคงโหลดรายละเอียดผ่าน GET_DETAIL_URL + approver_key เดิม (ส่วนอ่านรายละเอียด) เพื่อไม่พังของเก่า
-// วันที่/เดือน/ปี เวลา: 20/09/2025 20:45 (โซนไทย)
+// เวอร์ชัน: 2025-10-02 18:35 (Asia/Bangkok)
+// หน้าที่: หน้าแอดมินดูรายละเอียดใบงาน + อนุมัติ/ไม่อนุมัติ
+// เปลี่ยนสำคัญ:
+//   • โหลดรายละเอียดด้วย "Bearer ID Token (POST)" ไปยัง VITE_GET_REQUEST_ADMIN_URL
+//     (เลิกบังคับ approver_key; มี fallback GET+apiKey เฉพาะกรณีฉุกเฉินเท่านั้น)
+//   • แก้ useEffect ที่เสี่ยงวนลูป (Maximum update depth) โดย lock dependencies
+//     และเช็คค่าเปลี่ยนจริงก่อน setState
+//   • คงพฤติกรรมเดิม: ซ่อนปุ่มหากไม่มีสิทธิ์, พิมพ์ PDF, แผงข้อมูล/รูป
+// ความระวัง:
+//   • ต้องตั้งค่า VITE_GET_REQUEST_ADMIN_URL เป็น endpoint ของ getRequestAdmin (Gen2 .run.app)
+//   • ถ้า 403 ขึ้นโค้ดสิทธิ์ (เช่น need_view_permits) ให้เพิ่มสิทธิ์ “ดูทั้งหมด” ให้ผู้ใช้
+//   • react-to-print: ถ้าอัปเกรด v3 ให้ใช้ contentRef ตาม docs
 // ======================================================================
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-
-// ⛏️ เปลี่ยนมาใช้ตัวใหม่ที่แนบ Firebase ID Token
 import { updateStatusApi } from "../../utils/updateStatus";
-
 import { ref, getDownloadURL } from "firebase/storage";
 import { storage, ensureSignedIn } from "../../lib/firebase";
-
-// Components
+import { canDecide } from "../../lib/getClaims";
 import ImageViewer from "../../components/ImageViewer";
-
-// PDF
 import { useReactToPrint } from "react-to-print";
 
-// =============== Fancy UI helpers (Modal + Toast) ===============
+// ====== small utils ======
 function classNames(...xs: (string | false | undefined)[]) {
   return xs.filter(Boolean).join(" ");
 }
-
-type ConfirmBoxProps = {
-  open: boolean;
-  tone?: "emerald" | "rose" | "amber" | "indigo";
-  title: string;
-  message?: string;
-  confirmText?: string;
-  cancelText?: string;
-  busy?: boolean;
-  onClose: () => void;
-  onConfirm: () => void | Promise<void>;
-};
-
-function ConfirmBox({
-  open, tone = "emerald", title, message,
-  confirmText = "ยืนยัน", cancelText = "ยกเลิก",
-  busy, onClose, onConfirm,
-}: ConfirmBoxProps) {
-  if (!open) return null;
-  const toneBg: Record<string, string> = {
-    emerald: "bg-emerald-100 text-emerald-700 ring-emerald-200",
-    rose: "bg-rose-100 text-rose-700 ring-rose-200",
-    amber: "bg-amber-100 text-amber-700 ring-amber-200",
-    indigo: "bg-indigo-100 text-indigo-700 ring-indigo-200",
-  };
-  const toneBtn: Record<string, string> = {
-    emerald: "bg-emerald-600 hover:bg-emerald-700",
-    rose: "bg-rose-600 hover:bg-rose-700",
-    amber: "bg-amber-600 hover:bg-amber-700",
-    indigo: "bg-indigo-600 hover:bg-indigo-700",
-  };
-  return (
-    <div className="fixed inset-0 z-[60]">
-      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="absolute inset-0 flex items-center justify-center p-4">
-        <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200 animate-[fadeIn_120ms_ease-out]">
-          <div className="p-6">
-            <div className="flex items-start gap-3">
-              <div className={classNames("inline-flex h-12 w-12 items-center justify-center rounded-xl ring-1", toneBg[tone])}>
-                {/* check icon */}
-                <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
-                  <path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                </svg>
-              </div>
-              <div className="min-w-0">
-                <div className="text-lg font-semibold">{title}</div>
-                {message && <p className="mt-1 text-slate-600">{message}</p>}
-              </div>
-            </div>
-            <div className="mt-6 flex items-center justify-end gap-3">
-              <button
-                onClick={onClose}
-                disabled={busy}
-                className="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-60"
-              >
-                {cancelText}
-              </button>
-              <button
-                onClick={onConfirm}
-                disabled={busy}
-                className={classNames("px-3 py-2 rounded-lg text-white disabled:opacity-60", toneBtn[tone])}
-              >
-                {busy ? "กำลังบันทึก..." : confirmText}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
+type AnyRec = Record<string, any>;
 type ToastKind = "success" | "error" | "info";
 type ToastItem = { id: number; kind: ToastKind; title: string; message?: string };
-function Toasts({ items, onDismiss }: { items: ToastItem[]; onDismiss: (id:number)=>void }) {
-  const tone: Record<ToastKind, string> = {
-    success: "border-emerald-300 bg-emerald-50 text-emerald-800",
-    error:   "border-rose-300 bg-rose-50 text-rose-800",
-    info:    "border-slate-300 bg-white text-slate-800",
-  };
-  const icon = (k: ToastKind) => k === "success" ? (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19l12-12-1.41-1.41z"/></svg>
-  ) : k === "error" ? (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M12 2 2 22h20L12 2zm1 15h-2v-2h2v2zm0-4h-2V8h2v5z"/></svg>
-  ) : (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M11 7h2v2h-2zm0 4h2v6h-2z"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" fillOpacity=".15"/></svg>
-  );
-  return (
-    <div className="fixed bottom-4 right-4 z-[70] space-y-2">
-      {items.map(t => (
-        <div key={t.id}
-          className={classNames("w-[320px] rounded-xl border p-3 shadow-lg ring-1 ring-black/5 animate-[slideIn_140ms_ease-out]",
-            tone[t.kind])}>
-          <div className="flex gap-2">
-            <div className="mt-0.5">{icon(t.kind)}</div>
-            <div className="min-w-0">
-              <div className="font-medium truncate">{t.title}</div>
-              {t.message && <div className="text-sm opacity-80 truncate">{t.message}</div>}
-            </div>
-            <button className="ml-auto opacity-60 hover:opacity-100" onClick={()=>onDismiss(t.id)}>✕</button>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-// =============== /Fancy UI helpers ===============
 
-// ---------- ประเภทข้อมูล ----------
-type AnyRec = Record<string, any>;
 type WorkerItem = {
   name?: string;
   citizenId?: string;
@@ -147,9 +39,10 @@ type WorkerItem = {
   photoUrl?: string;
 };
 
-// ---------- คอนฟิก (ส่วนอ่านรายละเอียดเดิม) ----------
 const GET_DETAIL_URL = import.meta.env.VITE_GET_REQUEST_ADMIN_URL as string;
 const APPROVER_KEY_ENV = (import.meta.env.VITE_APPROVER_KEY as string) || "";
+
+// compat: key จาก localStorage (ถ้ามี)
 function getApproverKey(): string {
   try {
     const k = localStorage.getItem("approver_key");
@@ -158,27 +51,34 @@ function getApproverKey(): string {
   return APPROVER_KEY_ENV.trim();
 }
 
-// ---------- ตัวช่วยเวลา/สตริง ----------
+// ====== เวลา/รูปแบบ ======
 function tsToMillis(input: any): number | undefined {
-  if (!input) return undefined;
-  if (typeof input === "object" && typeof input._seconds === "number") {
-    return input._seconds * 1000 + Math.round((input._nanoseconds || 0) / 1e6);
+  if (input == null) return undefined;
+  if (typeof input === "object") {
+    if (typeof (input as any)._seconds === "number") {
+      const secs = (input as any)._seconds as number;
+      const nanos = Number((input as any)._nanoseconds || 0);
+      return secs * 1000 + Math.round(nanos / 1e6);
+    }
+    if (typeof (input as any).seconds === "number") {
+      const secs = (input as any).seconds as number;
+      const nanos = Number((input as any).nanoseconds || 0);
+      return secs * 1000 + Math.round(nanos / 1e6);
+    }
   }
-  if (typeof input?.seconds === "number") {
-    return input.seconds * 1000 + Math.round((input.nanoseconds || 0) / 1e6);
-  }
-  if (typeof input === "number") return input < 2_000_000_000_000 ? input * 1000 : input;
+  if (typeof input === "number") return input > 1e12 ? input : input * 1000;
   if (typeof input === "string") {
     const t = Date.parse(input);
     if (!Number.isNaN(t)) return t;
   }
   return undefined;
 }
-function fmtDateTime(input: any): string {
+function fmtDateTimeBE(input: any): string {
   const ms = tsToMillis(input);
   if (!ms) return "-";
   try {
-    return new Date(ms).toLocaleString("th-TH", {
+    const d = new Date(ms);
+    const fmt = new Intl.DateTimeFormat("th-TH-u-ca-buddhist", {
       year: "numeric",
       month: "short",
       day: "2-digit",
@@ -186,6 +86,7 @@ function fmtDateTime(input: any): string {
       minute: "2-digit",
       hour12: false,
     });
+    return fmt.format(d).replace(/\u200f/g, "");
   } catch {
     return "-";
   }
@@ -203,7 +104,7 @@ const text = (v: any): string => {
   try { return JSON.stringify(v); } catch { return String(v); }
 };
 
-// ---------- สกัดข้อมูล ----------
+// ====== สกัดข้อมูล ======
 const firstOf = (obj: AnyRec | undefined, keys: string[]): string | undefined => {
   if (!obj) return undefined;
   for (const k of keys) {
@@ -277,7 +178,7 @@ function collectWorkers(data: AnyRec): WorkerItem[] {
     .filter((x) => x && (x.name || x.citizenId || x.photoPath || x.photoUrl));
 }
 
-// ---- helper: path -> URL (พร้อม cache ง่ายๆ) ----
+// ---- storage path -> download URL (cache) ----
 const urlCache = new Map<string, string>();
 async function pathToUrl(path?: string, url?: string): Promise<string | null> {
   if (url && /^https?:\/\//i.test(url)) return url;
@@ -294,6 +195,108 @@ async function pathToUrl(path?: string, url?: string): Promise<string | null> {
   }
 }
 
+// =============== UI helpers (Confirm + Toasts) ===============
+type ConfirmBoxProps = {
+  open: boolean;
+  tone?: "emerald" | "rose" | "amber" | "indigo";
+  title: string;
+  message?: string;
+  confirmText?: string;
+  cancelText?: string;
+  busy?: boolean;
+  onClose: () => void;
+  onConfirm: () => void | Promise<void>;
+};
+function ConfirmBox({
+  open, tone = "emerald", title, message,
+  confirmText = "ยืนยัน", cancelText = "ยกเลิก", busy, onClose, onConfirm,
+}: ConfirmBoxProps) {
+  if (!open) return null;
+  const toneBg: Record<string, string> = {
+    emerald: "bg-emerald-100 text-emerald-700 ring-emerald-200",
+    rose: "bg-rose-100 text-rose-700 ring-rose-200",
+    amber: "bg-amber-100 text-amber-700 ring-amber-200",
+    indigo: "bg-indigo-100 text-indigo-700 ring-indigo-200",
+  };
+  const toneBtn: Record<string, string> = {
+    emerald: "bg-emerald-600 hover:bg-emerald-700",
+    rose: "bg-rose-600 hover:bg-rose-700",
+    amber: "bg-amber-600 hover:bg-amber-700",
+    indigo: "bg-indigo-600 hover:bg-indigo-700",
+  };
+  return (
+    <div className="fixed inset-0 z-[60]">
+      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 flex items-center justify-center p-4">
+        <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200 animate-[fadeIn_120ms_ease-out]">
+          <div className="p-6">
+            <div className="flex items-start gap-3">
+              <div className={classNames("inline-flex h-12 w-12 items-center justify-center rounded-xl ring-1", toneBg[tone])}>
+                <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
+                  <path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <div className="text-lg font-semibold">{title}</div>
+                {message && <p className="mt-1 text-slate-600">{message}</p>}
+              </div>
+            </div>
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <button
+                onClick={onClose}
+                disabled={busy}
+                className="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-60"
+              >
+                {cancelText}
+              </button>
+              <button
+                onClick={onConfirm}
+                disabled={busy}
+                className={classNames("px-3 py-2 rounded-lg text-white disabled:opacity-60", toneBtn[tone])}
+              >
+                {busy ? "กำลังบันทึก..." : confirmText}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Toasts({ items, onDismiss }: { items: ToastItem[]; onDismiss: (id:number)=>void }) {
+  const tone: Record<ToastKind, string> = {
+    success: "border-emerald-300 bg-emerald-50 text-emerald-800",
+    error:   "border-rose-300 bg-rose-50 text-rose-800",
+    info:    "border-slate-300 bg-white text-slate-800",
+  };
+  const icon = (k: ToastKind) => k === "success" ? (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19l12-12-1.41-1.41z"/></svg>
+  ) : k === "error" ? (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M12 2 2 22h20L12 2zm1 15h-2v-2h2v2zm0-4h-2V8h2v5z"/></svg>
+  ) : (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M11 7h2v2h-2zm0 4h2v6h-2z"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" fillOpacity=".15"/></svg>
+  );
+  return (
+    <div className="fixed bottom-4 right-4 z-[70] space-y-2">
+      {items.map(t => (
+        <div key={t.id}
+          className={classNames("w-[320px] rounded-xl border p-3 shadow-lg ring-1 ring-black/5 animate-[slideIn_140ms_ease-out]",
+            tone[t.kind])}>
+          <div className="flex gap-2">
+            <div className="mt-0.5">{icon(t.kind)}</div>
+            <div className="min-w-0">
+              <div className="font-medium truncate">{t.title}</div>
+              {t.message && <div className="text-sm opacity-80 truncate">{t.message}</div>}
+            </div>
+            <button className="ml-auto opacity-60 hover:opacity-100" onClick={()=>onDismiss(t.id)}>✕</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ----------------------------- คอมโพเนนต์หลัก -----------------------------
 export default function PermitDetails() {
   const params = useParams<{ rid?: string; id?: string }>();
@@ -303,16 +306,12 @@ export default function PermitDetails() {
   const [data, setData] = useState<AnyRec | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  // สิทธิ์ในการตัดสิน
+  const [allowed, setAllowed] = useState<boolean | null>(null);
+
   const [decideBusy, setDecideBusy] = useState(false);
   const [showReject, setShowReject] = useState(false);
   const [reason, setReason] = useState("");
-
-  // ⛏️ Confirm & Toast states
-  const [confirmBox, setConfirmBox] = useState<{
-    open: boolean; tone?: "emerald" | "rose" | "amber" | "indigo";
-    title: string; message?: string;
-    confirmText?: string; cancelText?: string;
-  }>({ open: false, title: "" });
 
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   function pushToast(kind: ToastKind, title: string, message?: string) {
@@ -324,11 +323,12 @@ export default function PermitDetails() {
   // preview photos
   const [requesterPhotoUrl, setRequesterPhotoUrl] = useState<string | null>(null);
   const [workerThumbUrls, setWorkerThumbUrls] = useState<string[]>([]);
+  const lastWorkersKey = useRef<string>(""); // กัน setState ซ้ำๆ
 
-  // ---------- พื้นที่ที่จะ "พิมพ์" ----------
+  // พิมพ์
   const printAreaRef = useRef(null);
   const handlePrint = useReactToPrint({
-    contentRef: printAreaRef,
+    contentRef: printAreaRef, // ใช้ contentRef ตามไลบรารีรุ่นใหม่
     documentTitle: `work-permit_${ridParam || "details"}`,
     pageStyle: `
       @page { size: A4; margin: 12mm }
@@ -336,43 +336,100 @@ export default function PermitDetails() {
       .no-print { display: none !important; }
       a[href]:after { content: "" !important; }
     `,
-    // onAfterPrint: () => {},
   });
 
-  // โหลดรายละเอียด (คงวิธีเดิมเพื่อ compat)
+  // โหลดสิทธิ์ (ครั้งเดียว)
+  useEffect(() => {
+    let live = true;
+    canDecide()
+      .then(ok => { if (live) setAllowed(ok); })
+      .catch(() => { if (live) setAllowed(false); });
+    return () => { live = false; };
+  }, []);
+
+  // ---------- โหลดรายละเอียด (ใช้ Bearer + POST) ----------
   useEffect(() => {
     let alive = true;
     const controller = new AbortController();
+
+    async function fetchWithBearer() {
+      const user = await ensureSignedIn(); // ให้แน่ใจว่ามี user
+      const token = await user.getIdToken();
+      const base = (GET_DETAIL_URL || "").replace(/\/+$/, "");
+      const url = base || "";
+      if (!url) throw new Error("ยังไม่ได้ตั้งค่า VITE_GET_REQUEST_ADMIN_URL");
+
+      const body = { requestId: ridParam, rid: ridParam };
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`, // <-- สำคัญ
+          "x-requester-email": user.email || "",
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      // แปลงข้อความ error พิเศษ
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}: ${res.statusText}`;
+        try {
+          const j = await res.json();
+          if (j?.message) msg = j.message;
+          if (j?.code === "need_view_permits") {
+            msg = "บัญชีนี้ยังไม่มีสิทธิ์ 'ดูรายการ' ให้ติ๊กสิทธิ์ ดูทั้งหมด (view_all) ที่หน้า Users";
+          }
+        } catch {}
+        throw new Error(msg);
+      }
+      const json = await res.json().catch(() => ({}));
+      return json?.data || json;
+    }
+
+    async function fetchCompatGetIfPossible() {
+      const key = getApproverKey();
+      if (!GET_DETAIL_URL || !key) throw new Error("ไม่พบ approver_key (compat) และไม่สามารถใช้วิธีเก่าได้");
+      const base = GET_DETAIL_URL.replace(/\/+$/, "");
+      const url = `${base}?requestId=${encodeURIComponent(ridParam)}&apiKey=${encodeURIComponent(key)}`;
+      const res = await fetch(url, { method: "GET", headers: { Accept: "application/json" }, signal: controller.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      const json = await res.json().catch(() => ({}));
+      return json?.data || json;
+    }
+
     async function run() {
+      if (!ridParam) { setErr("ไม่พบ RID ใน URL"); return; }
       setErr(null);
       setLoading(true);
       setData(null);
-
-      const key = getApproverKey();
-      if (!ridParam) { setErr("ไม่พบ RID ใน URL"); setLoading(false); return; }
-      if (!GET_DETAIL_URL || !key) { setErr("ยังไม่ได้ตั้งค่า VITE_GET_REQUEST_ADMIN_URL หรือ approver_key"); setLoading(false); return; }
-
       try {
-        const base = GET_DETAIL_URL.replace(/\/+$/, "");
-        const url = `${base}?requestId=${encodeURIComponent(ridParam)}&apiKey=${encodeURIComponent(key)}`;
-        const res = await fetch(url, { method: "GET", headers: { Accept: "application/json", "Content-Type": "application/json" }, signal: controller.signal });
-        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-        const json = await res.json().catch(() => ({}));
-        if (!json?.success && !json?.data) throw new Error(json?.error || json?.message || `ไม่พบข้อมูล RID: ${ridParam}`);
-        if (alive) setData(json.data || json);
+        const detail = await fetchWithBearer();
+        if (alive) setData(detail);
       } catch (e: any) {
-        if (!alive || e?.name === "AbortError") return;
-        console.error(`[getRequestAdmin Error]`, e);
-        setErr(e?.message || String(e));
+        // เฉพาะกรณี network ล้มเหลว และมี key ค่อยลอง compat GET
+        if (String(e?.message || "").includes("Failed to fetch")) {
+          try {
+            const detail = await fetchCompatGetIfPossible();
+            if (alive) setData(detail);
+            pushToast("info", "ทำงานด้วยโหมด compat", "ชั่วคราว: ใช้วิธีเก่าผ่าน approver_key");
+          } catch (e2: any) {
+            if (alive) setErr(e2?.message || String(e2));
+          }
+        } else {
+          if (alive) setErr(e?.message || String(e));
+        }
       } finally {
         if (alive) setLoading(false);
       }
     }
+
     run();
     return () => { alive = false; controller.abort(); };
   }, [ridParam]);
 
-  // สกัดฟิลด์เพื่อแสดงผล
+  // ------------ สกัดฟิลด์แสดงผล ------------
   const detail = data || {};
   const w = detail?.work ?? {};
   const loc = w?.location ?? detail?.location ?? {};
@@ -383,28 +440,48 @@ export default function PermitDetails() {
   const addressFull = useMemo(() => joinAddress(loc, req), [loc, req]);
 
   const workersRaw = useMemo(() => collectWorkers(detail), [detail]);
+
+  // 🔒 กันลูป: setWorkersResolved เฉพาะเมื่อ key เปลี่ยนจริง
   const [workersResolved, setWorkersResolved] = useState<(WorkerItem & { __idFull?: string })[]>([]);
   useEffect(() => {
     const rows = workersRaw.map((p) => ({ ...p, __idFull: toFullId(p) }));
-    setWorkersResolved(rows);
+    const key = JSON.stringify(rows.map(r => [r.name, r.citizenId, r.photoPath, r.photoUrl, r.isSupervisor]));
+    if (key !== lastWorkersKey.current) {
+      lastWorkersKey.current = key;
+      setWorkersResolved(rows);
+    }
   }, [workersRaw]);
 
   const statusText = thaiStatus(detail?.status || detail?.decision?.status);
 
-  // --- ดึง URL รูป "ผู้ขอ" และ "ผู้ร่วมงาน" ---
+  // --- รูป preview: ผู้ขอ + ผู้ร่วมงาน (ล็อกด้วย key ป้องกัน setState รัว) ---
+  const [imagesKey, setImagesKey] = useState<string>("");
   useEffect(() => {
     let alive = true;
     async function resolvePreviewImages() {
-      await ensureSignedIn(); // ให้ได้สิทธิ์อ่าน storage ถ้ามี rule จำกัด
+      if (!data) return;
+      await ensureSignedIn();
+
+      const newKey = JSON.stringify({
+        rid: ridParam,
+        idc: detail?.images?.idCardCleanPath,
+        ids: detail?.images?.idCardStampedPath,
+        workers: (detail?.images?.workers || []).map((w: any) => [w?.cleanPath, w?.stampedPath]),
+        extra: workersResolved.map(w => w.photoPath || w.photoUrl || ""),
+      });
+
+      if (newKey === imagesKey) return; // ไม่มีอะไรเปลี่ยนจริง
       const requesterCandidates: { path?: string; url?: string }[] = [
         { path: detail?.images?.idCardStampedPath },
         { path: detail?.images?.idCardCleanPath },
         { path: req?.photoPath, url: req?.photoUrl },
       ];
+      let gotRequester: string | null = null;
       for (const c of requesterCandidates) {
         const u = await pathToUrl(c.path, c.url);
-        if (u) { if (!alive) return; setRequesterPhotoUrl(u); break; }
+        if (u) { gotRequester = u; break; }
       }
+
       const imgs: string[] = [];
       const imgWorkers = Array.isArray(detail?.images?.workers) ? detail.images.workers : [];
       for (let i = 0; i < workersResolved.length; i++) {
@@ -417,24 +494,25 @@ export default function PermitDetails() {
         for (const c of cands) { got = await pathToUrl(c.path, c.url); if (got) break; }
         imgs.push(got || "");
       }
-      if (!alive) return;
-      const changed = imgs.length !== workerThumbUrls.length || imgs.some((u, i) => u !== workerThumbUrls[i]);
-      if (changed) setWorkerThumbUrls(imgs);
-    }
-    if (data) resolvePreviewImages();
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, workersResolved.length]);
 
-  // ---------------- ปุ่มอนุมัติ/ไม่อนุมัติ (เรียก API ใหม่แนบ ID Token) ----------------
+      if (!alive) return;
+      setImagesKey(newKey);
+      setRequesterPhotoUrl(gotRequester);
+      setWorkerThumbUrls(imgs);
+    }
+    resolvePreviewImages();
+    return () => { alive = false; };
+    // ไม่ใส่ workerThumbUrls ใน dependency เพื่อกันลูป
+  }, [data, ridParam, workersResolved]);
+
+  // ---------------- ปุ่มอนุมัติ/ไม่อนุมัติ ----------------
   async function doApprove() {
     const rid = (detail?.rid || detail?.requestId || detail?.id || ridParam) as string;
     if (!rid) return;
     setDecideBusy(true);
     try {
-      await updateStatusApi({ rid, status: "approved" }); // ✅ ใช้ API ใหม่
+      await updateStatusApi({ rid, status: "approved" });
       pushToast("success", "บันทึกสำเร็จ", "อนุมัติเรียบร้อย");
-      setConfirmBox((c) => ({ ...c, open: false }));
       setTimeout(() => location.reload(), 700);
     } catch (e: any) {
       pushToast("error", "อนุมัติไม่สำเร็จ", e?.message || String(e));
@@ -442,14 +520,13 @@ export default function PermitDetails() {
       setDecideBusy(false);
     }
   }
-
   async function doReject() {
     if (!reason.trim()) { pushToast("info", "กรุณาระบุเหตุผล"); return; }
     const rid = (detail?.rid || detail?.requestId || detail?.id || ridParam) as string;
     if (!rid) return;
     setDecideBusy(true);
     try {
-      await updateStatusApi({ rid, status: "rejected", reason: reason.trim() }); // ✅ ใช้ API ใหม่
+      await updateStatusApi({ rid, status: "rejected", reason: reason.trim() });
       pushToast("success", "บันทึกสำเร็จ", "ไม่อนุมัติเรียบร้อย");
       setShowReject(false);
       setReason("");
@@ -461,7 +538,7 @@ export default function PermitDetails() {
     }
   }
 
-  // รวมรูปที่ส่งให้ ImageViewer (worker + attachments/photos)
+  // รวมรูปให้ ImageViewer
   const workerImageItems = useMemo(() => {
     const items: { label: string; path?: string; url?: string }[] = [];
     const arr = Array.isArray(detail?.images?.workers) ? detail.images.workers : [];
@@ -474,7 +551,6 @@ export default function PermitDetails() {
     });
     return items;
   }, [detail?.images?.workers]);
-
   const attachmentImageItems = useMemo(() => ([
     ...(detail?.attachments || []).map((att: any, i: number) => ({
       label: att.label || `ไฟล์แนบ ${i + 1}`,
@@ -492,12 +568,14 @@ export default function PermitDetails() {
   return (
     <div>
       {/* Header */}
-      <div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1>รายละเอียดคำขอ</h1>
-          <div>RID: {detail?.rid || detail?.requestId || detail?.id || ridParam || "-"}</div>
+          <h1 className="text-xl font-semibold">รายละเอียดคำขอ</h1>
+          <div className="text-sm text-slate-600">
+            RID: {detail?.rid || detail?.requestId || detail?.id || ridParam || "-"}
+          </div>
         </div>
-        <div>
+        <div className="flex items-center gap-2">
           <span
             className={`px-3 py-1 rounded-full text-sm ${
               statusText === "อนุมัติแล้ว"
@@ -535,14 +613,14 @@ export default function PermitDetails() {
         <div className="mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700">
           <div className="font-medium">เกิดข้อผิดพลาด:</div>
           <div className="text-sm mt-1">{err}</div>
-          <div className="text-xs mt-2 opacity-70">URL: {GET_DETAIL_URL}</div>
+          <div className="text-xs mt-2 opacity-70">URL: {GET_DETAIL_URL || "-"}</div>
           <button onClick={() => window.location.reload()} className="mt-2 px-3 py-1 bg-red-100 hover:bg-red-200 rounded text-sm">
             ลองใหม่
           </button>
         </div>
       )}
 
-      {/* Upgraded Reject Modal */}
+      {/* Modal: ไม่อนุมัติ */}
       {showReject && (
         <div className="fixed inset-0 z-[60] no-print">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={()=>!decideBusy && setShowReject(false)} />
@@ -551,7 +629,6 @@ export default function PermitDetails() {
               <div className="p-6">
                 <div className="flex items-start gap-3">
                   <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-rose-100 text-rose-700 ring-1 ring-rose-200">
-                    {/* x icon */}
                     <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
                       <path d="M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.4 4.3 19.71 2.89 18.3 9.17 12 2.89 5.71 4.3 4.29 10.59 10.6 16.89 4.29z"/>
                     </svg>
@@ -593,19 +670,14 @@ export default function PermitDetails() {
 
       {/* ---- พื้นที่จะพิมพ์ ---- */}
       <div ref={printAreaRef}>
-        {!loading && !err && data && statusText === "รอดำเนินการ" && (
+        {/* ซ่อนปุ่มถ้าไม่มีสิทธิ์ + แสดงเฉพาะตอนยัง "รอดำเนินการ" */}
+        {!loading && !err && data && statusText === "รอดำเนินการ" && allowed && (
           <div className="mt-4 flex flex-wrap items-center gap-3 no-print">
             <button
               onClick={() => {
                 const rid = (detail?.rid || detail?.requestId || detail?.id || ridParam) as string;
-                setConfirmBox({
-                  open: true,
-                  tone: "emerald",
-                  title: "ยืนยันการอนุมัติ",
-                  message: `คุณต้องการอนุมัติ RID: ${rid} ใช่ไหม?`,
-                  confirmText: "ยืนยันอนุมัติ",
-                  cancelText: "ยกเลิก",
-                });
+                alert(`ยืนยันการอนุมัติ RID: ${rid}`);
+                doApprove();
               }}
               disabled={decideBusy}
               className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl disabled:bg-gray-400"
@@ -615,6 +687,12 @@ export default function PermitDetails() {
             <button onClick={() => setShowReject(true)} disabled={decideBusy} className="inline-flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-xl disabled:bg-gray-400">
               ไม่อนุมัติ
             </button>
+          </div>
+        )}
+
+        {!loading && !err && data && statusText === "รอดำเนินการ" && allowed === false && (
+          <div className="mt-4 text-sm text-slate-600 no-print">
+            * คุณไม่มีสิทธิ์ในการตัดสินคำขอนี้ (ปุ่มถูกซ่อน)
           </div>
         )}
 
@@ -758,20 +836,27 @@ export default function PermitDetails() {
                 <div className="grid md:grid-cols-2 gap-2 text-sm">
                   <div>
                     <div className="text-gray-500">สร้างเมื่อ</div>
-                    <div className="font-medium">{fmtDateTime(detail?.createdAt)}</div>
+                    <div className="font-medium">{fmtDateTimeBE(detail?.createdAt)}</div>
                   </div>
                   <div>
                     <div className="text-gray-500">อัปเดตล่าสุด</div>
-                    <div className="font-medium">{fmtDateTime(detail?.updatedAt || detail?.decision?.at)}</div>
+                    <div className="font-medium">{fmtDateTimeBE(detail?.updatedAt || detail?.decision?.at)}</div>
                   </div>
+
                   <div>
                     <div className="text-gray-500">ผู้ตัดสิน</div>
-                    <div className="font-medium">{detail?.decision?.byEmail || detail?.approvedByEmail || detail?.rejectedByEmail || "-"}</div>
+                    <div className="font-medium">
+                      {detail?.decision?.by?.displayName
+                        ? `${detail.decision.by.displayName} (${detail.decision.by.email || "-"})`
+                        : (detail?.decision?.byEmail || detail?.approvedByEmail || detail?.rejectedByEmail || "-")}
+                    </div>
                   </div>
+
                   <div>
                     <div className="text-gray-500">ผลล่าสุด</div>
                     <div className="font-medium">{statusText}</div>
                   </div>
+
                   {(detail?.decision?.reason || detail?.rejectionReason) && (
                     <div className="md:col-span-2">
                       <div className="text-gray-500">เหตุผล</div>
@@ -802,19 +887,6 @@ export default function PermitDetails() {
           </div>
         )}
       </div>
-      {/* ---- /พื้นที่พิมพ์ ---- */}
-
-      <ConfirmBox
-        open={confirmBox.open}
-        tone={confirmBox.tone}
-        title={confirmBox.title}
-        message={confirmBox.message}
-        confirmText={confirmBox.confirmText}
-        cancelText={confirmBox.cancelText}
-        busy={decideBusy}
-        onClose={() => !decideBusy && setConfirmBox((c) => ({ ...c, open: false }))}
-        onConfirm={doApprove}
-      />
 
       <Toasts items={toasts} onDismiss={(id)=>setToasts(xs=>xs.filter(t=>t.id!==id))} />
     </div>

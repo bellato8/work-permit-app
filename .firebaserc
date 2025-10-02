@@ -1,8 +1,5 @@
 {
   "projects": {
-    "default": "work-permit-app-1e9f0",
-    "alias": "work-permit-app-1e9f0"
-  },
-  "targets": {},
-  "etags": {}
+    "default": "work-permit-app-1e9f0"
+  }
 }
