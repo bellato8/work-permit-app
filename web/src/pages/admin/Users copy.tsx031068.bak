@@ -1,12 +1,15 @@
 // ======================================================================
 // File: web/src/pages/admin/Users.tsx
-// เวอร์ชัน: 30/09/2025 (หลังปรับ CORS/เฮดเดอร์)
+// เวอร์ชัน: 29/09/2025 21:05 (Asia/Bangkok)
 // หน้าที่: จัดการผู้ใช้แอดมิน (ดู/เพิ่ม/แก้สิทธิ์/ปิดเปิด/ลบ/เชิญ)
-// แนวใหม่: แนบแค่ Authorization: Bearer <ID_TOKEN> + Content-Type เท่านั้น
-// อ้างอิง:
-// - Cloud Run end-user auth: ส่ง ID token ใน Authorization: Bearer ... :contentReference[oaicite:6]{index=6}
-// - Firebase Admin verifyIdToken: ตรวจบัตรฝั่ง server :contentReference[oaicite:7]{index=7}
-// - CORS/Preflight: เฮดเดอร์แปลกทำให้ต้องขออนุญาต Access-Control-Allow-Headers :contentReference[oaicite:8]{index=8}
+// เชื่อม auth ผ่าน "อะแดปเตอร์":
+//   - Firebase Auth (getIdToken) → แนบ Authorization: Bearer <ID_TOKEN>
+//   - โหมดเข้ากันได้ชั่วคราว: แนบ x-api-key (ถ้ามีใน .env/localStorage) + requester ทั้ง header+query
+// เหตุผล: ระหว่างย้ายไปใช้ ID Token เต็มรูปแบบ ฝั่ง backend บางตัวอาจยังเช็ค x-api-key → กัน 403
+// เอกสารอ้างอิง: Cloud Run end-user auth + verify Firebase ID token ฝั่งเซิร์ฟเวอร์
+//   - https://cloud.google.com/run/docs/authenticating/end-users
+//   - https://cloud.google.com/run/docs/tutorials/identity-platform
+//   - https://firebase.google.com/docs/auth/admin/verify-id-tokens
 // ======================================================================
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -41,8 +44,12 @@ try {
       projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
       appId: import.meta.env.VITE_FIREBASE_APP_ID,
     } as any);
+    // console.debug("[Users][init] Firebase app initialized by Users.tsx");
   }
-} catch {}
+} catch (e) {
+  // เงียบไว้ ถ้าโปรเจกต์คุณมีไฟล์ init ส่วนกลางอยู่แล้ว
+  // console.warn("[Users][init] Firebase init guard error:", e);
+}
 
 // 🔐 Firebase Auth — ใช้ดึง user และ ID Token
 import { getAuth, getIdToken, onAuthStateChanged } from "firebase/auth";
@@ -83,24 +90,64 @@ const URLS = {
 };
 
 // ======================================================================
-// 🔄 AUTH HELPERS — ส่งเฉพาะ Bearer + Content-Type (ตัดโหมดชั่วคราวออกทั้งหมด)
+// 🔄 AUTH HELPERS: Bearer + (Compat) x-api-key
 // ======================================================================
+/** คืนค่า approver_key (เฉพาะกรณีเป็น ASCII ล้วน) เพื่อกัน fetch ล่มบน Firefox */
+function getLegacyKey(): string {
+  try {
+    const raw =
+      (localStorage.getItem("approver_key") ||
+        (import.meta.env.VITE_APPROVER_KEY as string) ||
+        ""
+      ).trim();
+
+    // อนุญาตเฉพาะอักขระ ASCII ที่พิมพ์ได้เท่านั้น (0x20-0x7E)
+    // กันเคสที่ใส่ข้อความไทยในคีย์ → ทำให้ fetch โยน ByteString error บน Firefox
+    const isPrintableASCII = /^[\x20-\x7E]*$/.test(raw);
+    return isPrintableASCII ? raw : "";
+  } catch {
+    return "";
+  }
+}
 
 function currentRequesterEmail(): string {
   const u = getAuth().currentUser;
   if (u?.email) return u.email;
   const env = (import.meta.env.VITE_APPROVER_EMAIL as string | undefined) || "";
-  return (env || "").trim();
+  return env.trim();
 }
 
+/** Header มาตรฐาน: Authorization (ID Token) + x-requester-email + (compat) x-api-key */
 async function authzHeaders(): Promise<Record<string, string>> {
   const user = getAuth().currentUser;
   if (!user) throw new Error("กรุณาเข้าสู่ระบบก่อนใช้งาน");
   const token = await getIdToken(user);
-  return {
+
+  const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "Authorization": `Bearer ${token}`,
   };
+  const requester = currentRequesterEmail();
+  if (requester) headers["x-requester-email"] = requester;
+
+  // โหมดเข้ากันได้: แนบ x-api-key เฉพาะเมื่อเป็น ASCII เท่านั้น
+  const legacyKey = getLegacyKey();
+  if (legacyKey) headers["x-api-key"] = legacyKey;
+
+  // debug เบาๆ
+  // console.debug("[Users][debug] authzHeaders()", { hasUser: !!user, email: requester, tokenLen: token?.length, hasApikey: !!legacyKey });
+
+  return headers;
+}
+
+/** เติม requester(+key ถ้ามี) เป็น query กัน proxy ตัด header และช่วย log ฝั่ง server */
+function withCompatQuery(url: string, requester: string, legacyKey?: string) {
+  try {
+    const u = new URL(url);
+    if (requester) u.searchParams.set("requester", requester);
+    if (legacyKey) u.searchParams.set("key", legacyKey);
+    return u.toString();
+  } catch { return url; }
 }
 
 // ---------- Utils ----------
@@ -233,7 +280,9 @@ export default function Users() {
     setLoading(true); setErr(null);
     try {
       const headers = await authzHeaders();
-      const res = await fetch(URLS.list, { method: "POST", headers, body: JSON.stringify({}) });
+      const url = withCompatQuery(URLS.list, requester, getLegacyKey());
+      // console.debug("[Users][debug] loadList():", { url, requester, hasApikey: !!getLegacyKey() });
+      const res = await fetch(url, { method: "POST", headers, body: JSON.stringify({}) });
       if (res.status === 401) throw new Error("กรุณาเข้าสู่ระบบก่อนใช้งาน");
       const j = await res.json().catch(() => ({}));
       if (!res.ok || j?.ok === false) throw new Error(j?.error || `โหลดรายการไม่สำเร็จ (HTTP ${res.status})`);
@@ -293,7 +342,8 @@ export default function Users() {
     }
     try {
       const headers = await authzHeaders();
-      const res = await fetch(URLS.add, { method: "POST", headers, body: JSON.stringify({ email: newEmail.trim(), role: newRole }) });
+      const u = withCompatQuery(URLS.add, requester, getLegacyKey());
+      const res = await fetch(u, { method: "POST", headers, body: JSON.stringify({ email: newEmail.trim(), role: newRole }) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || j?.ok === false) throw new Error(j?.error || `เพิ่มไม่สำเร็จ (HTTP ${res.status})`);
       setNewEmail(""); setNewRole("viewer");
@@ -311,7 +361,8 @@ export default function Users() {
     try {
       setSavingEmail(email);
       const headers = await authzHeaders();
-      const res = await fetch(URLS.update, { method: "POST", headers, body: JSON.stringify({ email, role, caps }) });
+      const u = withCompatQuery(URLS.update, requester, getLegacyKey());
+      const res = await fetch(u, { method: "POST", headers, body: JSON.stringify({ email, role, caps }) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || j?.ok === false) throw new Error(j?.error || `บันทึกไม่สำเร็จ (HTTP ${res.status})`);
       await loadList();
@@ -330,7 +381,8 @@ export default function Users() {
     try {
       setTogglingEmail(email);
       const headers = await authzHeaders();
-      const res = await fetch(URLS.update, { method: "POST", headers, body: JSON.stringify({ email, enabled }) });
+      const u = withCompatQuery(URLS.update, requester, getLegacyKey());
+      const res = await fetch(u, { method: "POST", headers, body: JSON.stringify({ email, enabled }) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || j?.ok === false) throw new Error(j?.error || `อัปเดตไม่สำเร็จ (HTTP ${res.status})`);
       await loadList();
@@ -349,7 +401,8 @@ export default function Users() {
     try {
       setRemovingEmail(email);
       const headers = await authzHeaders();
-      const res = await fetch(URLS.remove, { method: "POST", headers, body: JSON.stringify({ email }) });
+      const u = withCompatQuery(URLS.remove, requester, getLegacyKey());
+      const res = await fetch(u, { method: "POST", headers, body: JSON.stringify({ email }) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || j?.ok === false) throw new Error(j?.error || `ลบไม่สำเร็จ (HTTP ${res.status})`);
       await loadList();
@@ -372,7 +425,8 @@ export default function Users() {
     try {
       setInviteLoading(true);
       const headers = await authzHeaders();
-      const res = await fetch(URLS.invite, { method: "POST", headers, body: JSON.stringify({ email: inviteTarget }) });
+      const u = withCompatQuery(URLS.invite, requester, getLegacyKey());
+      const res = await fetch(u, { method: "POST", headers, body: JSON.stringify({ email: inviteTarget }) });
       const json = await res.json().catch(() => ({}));
       if (res.status === 401) throw new Error("กรุณาเข้าสู่ระบบก่อนใช้งาน");
       if (!res.ok || json?.ok === false) throw new Error(json?.error || `HTTP ${res.status}`);
