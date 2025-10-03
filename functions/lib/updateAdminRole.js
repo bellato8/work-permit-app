@@ -1,22 +1,4 @@
 "use strict";
-/* ============================================================================
- * ไฟล์: functions/src/updateAdminRole.ts
- * เวอร์ชัน: 2025-09-17
- * บทบาทไฟล์ (role): HTTP Function ตั้ง/อัปเดตบทบาทและสิทธิ์ของแอดมิน + ตรวจสิทธิ์ผู้ร้องขอ
- * เปลี่ยนแปลงรอบนี้:
- *   • กรองค่า undefined ออกจาก payload ก่อนเขียน Firestore (ป้องกัน error extra.role)
- *   • เพิ่มตัวตรวจสิทธิ์: ต้องเป็น superadmin หรือมี caps.manageUsers / caps.manage_users
- *   • ใส่ CORS (คอร์ส = กติกาเรียกข้ามโดเมน, หน้าที่: อนุญาต origin ที่กำหนด) + handle OPTIONS (พรี-ไฟลต์)
- *   • เขียนเฉพาะฟิลด์ที่ “ถูกส่งมาและมีค่า” (ไม่ฝังฟิลด์ extra ที่มี undefined)
- * คำสำคัญ (English → Thai/phonetic/meaning):
- *   • Sanitize (แซน-นิ-ไทซ์) = กรอง/ลบค่าที่ไม่เหมาะสมออก
- *   • Payload (เพย์-โหลด) = ข้อมูลที่ client ส่งเข้ามา
- *   • Upsert (อัพ-เซิร์ต) = สร้างถ้าไม่มี/อัปเดตถ้ามี
- *   • Merge (เมิร์จ) = รวมข้อมูลกับของเดิม
- *   • CORS (คอร์ส) = กติกาเรียกข้ามโดเมน
- * หมายเหตุความปลอดภัย: ดึงคีย์จาก Secret/ENV เท่านั้น, จำกัด Origin ตามโดเมนที่กำหนด
- * ผู้เขียน: AI ผู้ช่วย (โหมดจับมือทำ)
- * ========================================================================== */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -52,68 +34,89 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateAdminRole = void 0;
+// ============================================================================
+// File: functions/src/updateAdminRole.ts
+// Version: 2025-10-03  (CORS ปรับให้ยืดหยุ่น + อนุญาต x-requester-email/x-api-key)
+// หน้าที่: อัปเดตบทบาท/สิทธิ์ผู้ดูแล (admins/*) โดยยึด “บัตรผ่าน (Bearer ID token)”
+//          + เปิดสมุดสิทธิ์ Firestore ทุกครั้ง ตอบกลับภาษาคน
+// นโยบายหลัก:
+//   1) ใช้เฉพาะ Authorization: Bearer <ID_TOKEN> (ไม่พึ่ง x-requester-email เพื่อยืนยันตัวตน)
+//   2) สิทธิ์จริงตัดสินจาก Firestore (admins/{emailLower}) ทุกคำขอ
+//   3) 401 เมื่อยังไม่ล็อกอิน/บัตรหมดอายุ, 403 เมื่อสิทธิ์ไม่พอ
+// ============================================================================
 const https_1 = require("firebase-functions/v2/https");
-const params_1 = require("firebase-functions/params");
 const admin = __importStar(require("firebase-admin"));
 const emitAudit_1 = require("./lib/emitAudit");
-const APPROVER_KEY = (0, params_1.defineSecret)("APPROVER_KEY");
 if (!admin.apps.length)
     admin.initializeApp();
-// ---------- CORS helpers ----------
+// ---------- CORS ----------
 const ALLOW_ORIGINS = new Set([
     "http://localhost:5173",
     "https://staging.imperialworld.asia",
     "https://imperialworld.asia",
 ]);
+function mergeAllowHeaders(req) {
+    // รวม whitelist พื้นฐาน + หัวข้อที่เบราว์เซอร์บอกว่าจะส่งมาในรอบเปิดทาง
+    const base = [
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+        "x-requester-email",
+        "x-api-key",
+    ];
+    const asked = String(req.headers["access-control-request-headers"] || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    const set = new Set([...base, ...asked]);
+    return Array.from(set).join(", ");
+}
 function applyCors(req, res) {
     const origin = String(req.headers.origin || "");
     const allow = origin && ALLOW_ORIGINS.has(origin) ? origin : "*";
     res.setHeader("Access-Control-Allow-Origin", allow);
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, x-api-key, x-requester-email");
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
+    res.setHeader("Vary", "Origin"); // กันคาเช่ผิดโดเมน
+    res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", mergeAllowHeaders(req));
     res.setHeader("Access-Control-Max-Age", "600");
 }
-// ---------- small utils ----------
-function readKey(req) {
-    return String(req.get("x-api-key") ||
-        req.get("x-approver-key") ||
-        req.query?.key ||
-        req.body?.key ||
-        "").trim();
+// ---------- ภาษาคนสำหรับข้อผิดพลาด ----------
+function reply401(res, code, detail) {
+    const catalog = {
+        "auth/unauthenticated": { message: "ยังไม่ได้เข้าสู่ระบบ", hint: "กรุณาเข้าสู่ระบบแล้วลองใหม่" },
+        "auth/invalid_token": { message: "ยืนยันตัวตนไม่สำเร็จ", hint: "กรุณาเข้าสู่ระบบใหม่" },
+        "auth/expired": { message: "หมดเวลาใช้งานแล้ว", hint: "กรุณาเข้าสู่ระบบใหม่" },
+        "auth/wrong_project": { message: "บัตรผ่านไม่ใช่ของระบบนี้", hint: "กรุณาออกจากระบบ แล้วเข้าสู่ระบบใหม่" },
+    };
+    const c = catalog[code] || catalog["auth/unauthenticated"];
+    res.status(401).json({ ok: false, code, message: c.message, hint: c.hint, detail });
 }
-function readRequester(req) {
-    return String(req.get("x-requester-email") || req.query?.requester || req.body?.requester || "").trim();
+function reply403(res, code, need) {
+    const catalog = {
+        "auth/forbidden": { message: "คุณไม่มีสิทธิ์ทำรายการนี้", hint: "ติดต่อผู้ดูแลเพื่อขอสิทธิ์เพิ่ม" },
+        "auth/need_manage_users": { message: "คุณไม่มีสิทธิ์จัดการผู้ใช้", hint: "ติดต่อผู้ดูแลเพื่อขอสิทธิ์ “จัดการผู้ใช้”" },
+        "auth/disabled": { message: "บัญชีของคุณถูกปิดใช้งาน", hint: "ติดต่อผู้ดูแลระบบ" },
+    };
+    const c = catalog[code] || catalog["auth/forbidden"];
+    res.status(403).json({ ok: false, code, message: c.message, hint: c.hint, need });
 }
-function ipOf(req) {
+function reply400(res, code, field) {
+    const catalog = {
+        "bad_request": { message: "คำขอไม่ถูกต้อง", hint: "กรุณาลองใหม่" },
+        "missing_email": { message: "กรุณาระบุอีเมลเป้าหมาย", hint: "ตรวจสอบช่องอีเมลแล้วลองใหม่" },
+        "method_not_allowed": { message: "วิธีเรียกใช้งานไม่ถูกต้อง", hint: "ใช้แบบ POST เท่านั้น" },
+    };
+    const c = catalog[code] || catalog["bad_request"];
+    res.status(code === "method_not_allowed" ? 405 : 400)
+        .json({ ok: false, code, message: c.message, hint: c.hint, field });
+}
+// ---------- ยูทิล ----------
+const emailKey = (email) => (email || "").trim().toLowerCase();
+const ipOf = (req) => {
     const x = String(req.headers["x-forwarded-for"] || "");
     return (x.split(",")[0] || req.socket?.remoteAddress || "").trim() || undefined;
-}
-function uaOf(req) {
-    return String(req.headers["user-agent"] || "") || undefined;
-}
-function emailKey(email) {
-    return (email || "").trim().toLowerCase();
-}
-// ตรวจสิทธิ์ requester จากเอกสาร admins/<emailLower>
-async function ensureCanManageUsers(requesterEmail) {
-    if (!requesterEmail)
-        return { ok: false, reason: "missing_requester" };
-    const id = emailKey(requesterEmail);
-    const snap = await admin.firestore().collection("admins").doc(id).get();
-    if (!snap.exists)
-        return { ok: false, reason: "requester_not_admin" };
-    const data = snap.data() || {};
-    const enabled = data.enabled !== false; // ไม่กำหนด = ถือว่า true
-    const role = String(data.role || "").toLowerCase();
-    const caps = (data.caps && typeof data.caps === "object") ? data.caps : {};
-    const canManage = !!caps.manageUsers || !!caps.manage_users || role === "superadmin";
-    if (!enabled)
-        return { ok: false, reason: "requester_disabled" };
-    if (!canManage)
-        return { ok: false, reason: "need manage_users" };
-    return { ok: true };
-}
-// กรองคีย์ที่มีค่า undefined ออก (shallow clean)
+};
+const uaOf = (req) => String(req.headers["user-agent"] || "") || undefined;
 function cleanObject(obj) {
     const out = {};
     Object.keys(obj || {}).forEach((k) => {
@@ -123,39 +126,81 @@ function cleanObject(obj) {
     });
     return out;
 }
-exports.updateAdminRole = (0, https_1.onRequest)({ region: "asia-southeast1", secrets: [APPROVER_KEY] }, async (req, res) => {
+// ตรวจสิทธิ์: ต้องเป็น superadmin หรือมี manageUsers/manage_users และ enabled ไม่เป็น false
+async function ensureCanManageUsersByEmail(email) {
+    const id = emailKey(email);
+    const snap = await admin.firestore().collection("admins").doc(id).get();
+    if (!snap.exists)
+        return { ok: false, code: "auth/forbidden", reason: "not_in_admins" };
+    const data = snap.data() || {};
+    if (data.enabled === false)
+        return { ok: false, code: "auth/disabled", reason: "requester_disabled" };
+    const role = String(data.role || "").toLowerCase();
+    const caps = (data.caps && typeof data.caps === "object") ? data.caps : {};
+    const can = role === "superadmin" || !!caps.manageUsers || !!caps.manage_users;
+    if (!can)
+        return { ok: false, code: "auth/need_manage_users", reason: "need_manage_users" };
+    return { ok: true };
+}
+// ดึงและตรวจบัตรผ่าน (ID token) จาก header แล้วคืนอีเมลผู้ร้องขอ
+async function getRequesterEmailFromBearer(req) {
+    const authz = String(req.get("Authorization") || req.get("authorization") || "");
+    const m = authz.match(/^Bearer\s+(.+)$/i);
+    if (!m)
+        return null;
+    const token = m[1];
     try {
-        applyCors(req, res);
-        if (req.method === "OPTIONS") {
-            res.status(204).send("");
+        const decoded = await admin.auth().verifyIdToken(token);
+        const email = (decoded.email || "").toLowerCase();
+        return email || null;
+    }
+    catch (e) {
+        const msg = String(e?.message || "").toLowerCase();
+        if (msg.includes("expired"))
+            throw Object.assign(new Error("expired"), { code: "auth/expired" });
+        if (msg.includes("project") || msg.includes("iss") || msg.includes("aud"))
+            throw Object.assign(new Error("wrong_project"), { code: "auth/wrong_project" });
+        throw Object.assign(new Error("invalid_token"), { code: "auth/invalid_token" });
+    }
+}
+exports.updateAdminRole = (0, https_1.onRequest)({ region: "asia-southeast1" }, async (req, res) => {
+    applyCors(req, res);
+    if (req.method === "OPTIONS") {
+        res.status(204).send("");
+        return;
+    }
+    if (req.method !== "POST") {
+        reply400(res, "method_not_allowed");
+        return;
+    }
+    try {
+        // 1) ตรวจบัตรผ่าน
+        let requesterEmail = null;
+        try {
+            requesterEmail = await getRequesterEmailFromBearer(req);
+            if (!requesterEmail) {
+                reply401(res, "auth/unauthenticated");
+                return;
+            }
+        }
+        catch (e) {
+            reply401(res, e?.code || "auth/invalid_token");
             return;
         }
-        if (req.method !== "POST") {
-            res.status(405).json({ ok: false, error: "method_not_allowed" });
+        // 2) เปิดสมุดสิทธิ์ของผู้ร้องขอ
+        const gate = await ensureCanManageUsersByEmail(requesterEmail);
+        if (!gate.ok) {
+            reply403(res, gate.code, gate.reason);
             return;
         }
-        // ---- API key check ----
-        const provided = readKey(req);
-        const secretVal = APPROVER_KEY.value() || process.env.APPROVER_KEY || "";
-        if (!provided || provided !== secretVal) {
-            res.status(401).json({ ok: false, error: "unauthorized" });
-            return;
-        }
-        const requester = readRequester(req) || undefined;
-        // ---- Authorization (ต้องมี manage_users หรือเป็น superadmin) ----
-        const authz = await ensureCanManageUsers(requester);
-        if (!authz.ok) {
-            res.status(403).json({ ok: false, error: `forbidden: ${authz.reason}` });
-            return;
-        }
-        // ---- parse payload ----
+        // 3) อ่านคำขอและตรวจเบื้องต้น
         const { email, role, caps, enabled, displayName } = req.body || {};
         if (!email || typeof email !== "string") {
-            res.status(400).json({ ok: false, error: "missing_email" });
+            reply400(res, "missing_email", "email");
             return;
         }
         const emailLower = emailKey(email);
-        // ---- upsert user in Firebase Auth (optional) ----
+        // 4) (ไม่บังคับ) สร้าง/อัปเดตผู้ใช้ใน Firebase Auth ตาม displayName
         const auth = admin.auth();
         let uid;
         try {
@@ -166,7 +211,6 @@ exports.updateAdminRole = (0, https_1.onRequest)({ region: "asia-southeast1", se
             }
         }
         catch {
-            // ถ้ายังไม่มี user ให้สร้างแบบเบื้องต้น
             const u = await auth.createUser({
                 email: emailLower,
                 displayName: displayName || undefined,
@@ -175,41 +219,33 @@ exports.updateAdminRole = (0, https_1.onRequest)({ region: "asia-southeast1", se
             });
             uid = u.uid;
         }
-        // คง customClaims role: "admin" เดิมไว้ (ถ้าต้องการ)
-        // หมายเหตุ: ไม่ผูกกับ role viewer/approver ที่ UI ใช้ — claims ตรงนี้เพื่อบอกว่าเป็นแอดมินระบบ
-        if (uid) {
-            const cur = await auth.getUser(uid);
-            const newClaims = { ...(cur.customClaims || {}), role: "admin" };
-            await auth.setCustomUserClaims(uid, newClaims);
-        }
-        // ---- สร้าง object สำหรับบันทึก Firestore (ตัด undefined ออก) ----
+        // 5) บันทึก Firestore (merge เฉพาะคีย์ที่ส่งมา)
         const updateData = {
-            // เก็บ email/emailLower เพื่อความชัดเจน (ถ้าอยากให้ list ใช้)
             email: emailLower,
             emailLower: emailLower,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            updatedBy: requester || null,
+            updatedBy: requesterEmail,
         };
         if (typeof enabled === "boolean")
             updateData.enabled = enabled;
         if (role && typeof role === "string") {
             const normalized = role.toLowerCase().replace(/^super$/, "superadmin");
-            updateData.role = ["superadmin", "admin", "approver", "viewer"].includes(normalized)
-                ? normalized
-                : "viewer";
+            updateData.role = ["superadmin", "admin", "approver", "viewer"].includes(normalized) ? normalized : "viewer";
         }
-        if (caps && typeof caps === "object") {
-            // ตัดค่า undefined ใน caps ออกแบบตื้นๆ
+        if (caps && typeof caps === "object")
             updateData.caps = cleanObject(caps);
-        }
-        // สำคัญ: อย่าใส่ object ซ้อนที่มีค่า undefined (เช่น extra.role) ลง Firestore
-        const docRef = admin.firestore().collection("admins").doc(emailLower);
-        await docRef.set(updateData, { merge: true }); // merge (เมิร์จ) = รวมกับของเดิม
-        // ---- audit log ----
-        await (0, emitAudit_1.emitAudit)("admin_caps_update", requester ? { email: requester } : "unknown", { type: "admin", id: uid || emailLower, rid: emailLower }, "update admin caps/role", { ip: ipOf(req), ua: uaOf(req), role: updateData.role, enabled: updateData.enabled, caps: updateData.caps });
+        await admin.firestore().collection("admins").doc(emailLower).set(updateData, { merge: true });
+        // 6) จดบันทึกเหตุการณ์ (audit)
+        await (0, emitAudit_1.emitAudit)("admin_caps_update", { email: requesterEmail }, { type: "admin", id: uid || emailLower, rid: emailLower }, "update admin caps/role", { ip: ipOf(req), ua: uaOf(req), role: updateData.role, enabled: updateData.enabled, caps: updateData.caps });
         res.json({ ok: true, email: emailLower, uid: uid || null });
     }
     catch (e) {
-        res.status(500).json({ ok: false, error: e?.message || String(e) });
+        res.status(500).json({
+            ok: false,
+            code: "server/error",
+            message: "ระบบขัดข้องชั่วคราว",
+            hint: "กรุณาลองใหม่อีกครั้ง",
+            detail: String(e?.message || e),
+        });
     }
 });

@@ -22,8 +22,9 @@
 // -------------------- Admin / Users --------------------
 // [WHY] ไฟล์จริงคือ adminUsers.ts ซึ่ง export ชื่อ listAdmins
 
-export { updateStatus } from "./updateStatus";
-export { getRequestAdmin } from "./getRequestAdmin";
+// export { updateStatus } from "./updateStatus";
+// export { getRequestAdmin } from "./getRequestAdmin";
+// export { updateAdminRole } from "./updateAdminRole";
 export { updateAdminRole } from "./updateAdminRole";
 
 

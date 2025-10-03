@@ -8,7 +8,7 @@
 // วันที่/เวลา (เขตเวลาไทย): 23/09/2025 20:45
 // ======================================================================
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getRequestAdmin = exports.updateStatus = void 0;
+exports.updateAdminRole = void 0;
 // ----------------------------------------------------------------------
 // [BACKUP: ของเดิมที่ทำให้ TS2305]
 // export { listAdmins } from "./listAdmins";            // <ไม่มีไฟล์นี้แล้ว>
@@ -22,10 +22,11 @@ exports.getRequestAdmin = exports.updateStatus = void 0;
 // ----------------------------------------------------------------------
 // -------------------- Admin / Users --------------------
 // [WHY] ไฟล์จริงคือ adminUsers.ts ซึ่ง export ชื่อ listAdmins
-var updateStatus_1 = require("./updateStatus");
-Object.defineProperty(exports, "updateStatus", { enumerable: true, get: function () { return updateStatus_1.updateStatus; } });
-var getRequestAdmin_1 = require("./getRequestAdmin");
-Object.defineProperty(exports, "getRequestAdmin", { enumerable: true, get: function () { return getRequestAdmin_1.getRequestAdmin; } });
+// export { updateStatus } from "./updateStatus";
+// export { getRequestAdmin } from "./getRequestAdmin";
+// export { updateAdminRole } from "./updateAdminRole";
+var updateAdminRole_1 = require("./updateAdminRole");
+Object.defineProperty(exports, "updateAdminRole", { enumerable: true, get: function () { return updateAdminRole_1.updateAdminRole; } });
 // NOTE: มีไฟล์ onRequestCreatedNotifyApprovers.ts ด้วย
 // ถ้าเปิดใช้งานพร้อมกันกับ onRequestCreated อาจทำให้ "ส่งเมลซ้ำ 2 ฉบับ"
 // เดี๋ยวไปจัดการในขั้นถัดไปให้เหลือตัวเดียว/ควบคุมเงื่อนไขให้ชัดเจน
