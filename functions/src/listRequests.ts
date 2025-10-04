@@ -1,146 +1,177 @@
-// ============================================================
-// ไฟล์: functions/src/listRequests.ts (Firebase Functions v2)
-// ผู้เขียน: AI Helper - Fixed Secret Conflict
-// เวลา: 2025-09-08 20:05 (Asia/Bangkok)
-// การแก้ไข: ใช้ defineSecret แทน process.env เพื่อแก้ deploy error
-// ============================================================
+// ======================================================================
+// File: functions/src/listRequests.ts
+// เวอร์ชัน: 2025-10-04
+// หน้าที่: ลิสต์คำขอจาก Firestore เรียงใหม่→เก่า พร้อมเพจจิ้งนิ่ง (คอร์เซอร์)
+// เชื่อม auth ผ่าน: Firebase Admin SDK (verifyIdToken) - ใช้เฉพาะ ID Token
+// หมายเหตุ:
+//   - เลิกใช้ API key ในไฟล์นี้
+//   - อนุญาต roles: viewer / approver / admin / superadmin (เมื่อ enabled = true)
+//   - ใช้ orderBy(createdAt desc) + orderBy(__name__ desc) + startAfter(...) ให้เพจจิ้งนิ่ง
+//   - CORS คุมโดเมนเอง
+// ======================================================================
 
 import { onRequest } from "firebase-functions/v2/https";
-import { defineSecret } from "firebase-functions/params";
 import { getApps, initializeApp } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
+// ✅ import แบบที่เอกสารแนะนำ: ดึงฟังก์ชัน log เป็นรายตัวจากซับแพ็กเกจ
+import { info, warn, error } from "firebase-functions/logger";
 
-// เริ่มต้น Firebase Admin
 if (!getApps().length) initializeApp();
 const db = getFirestore();
 
-// ✅ ใช้ defineSecret
-const APPROVER_KEY = defineSecret("APPROVER_KEY");
-
-// ตัวช่วย CORS
+// ---------- CORS ----------
 function setCorsHeaders(req: any, res: any) {
   const allowedOrigins = [
-    "https://imperialworld.asia", 
+    "https://imperialworld.asia",
     "https://staging.imperialworld.asia",
     "http://localhost:5173",
     "https://work-permit-app-1e9f0.web.app",
-    "https://work-permit-app-1e9f0.firebaseapp.com"
+    "https://work-permit-app-1e9f0.firebaseapp.com",
   ];
   const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
+  if (origin && allowedOrigins.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key, x-requester-email");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.setHeader("Access-Control-Max-Age", "3600");
 }
 
-// ✅ ฟังก์ชันหลัก
-export const listRequests = onRequest({
-  region: "asia-southeast1",
-  secrets: [APPROVER_KEY],
-  timeoutSeconds: 60,
-  memory: "256MiB"
-}, async (req, res) => {
-  setCorsHeaders(req, res);
-  
-  if (req.method === "OPTIONS") {
-    res.status(204).send("");
-    return;
-  }
-
-  let isAuthorized = false;
-
-  // 1. ตรวจสอบ Bearer Token
-  const authHeader = req.headers.authorization || "";
-  if (authHeader.startsWith("Bearer ")) {
-    const idToken = authHeader.split("Bearer ")[1];
-    try {
-      const decodedToken = await getAuth().verifyIdToken(idToken);
-      const email = decodedToken.email;
-      if (email) {
-        const adminSnap = await db.collection("admins").where("email", "==", email).limit(1).get();
-        if (!adminSnap.empty) {
-          const adminData = adminSnap.docs[0].data();
-          if (adminData.enabled && ["admin", "approver", "superadmin"].includes(adminData.role)) {
-            isAuthorized = true;
-          }
-        }
-      }
-    } catch (error) {
-      console.error("Token verification failed:", error);
-    }
-  }
-
-  // 2. ตรวจสอบ API Key (fallback)
-  if (!isAuthorized) {
-    const keyFromQuery = req.query.key as string;
-    const keyFromHeader = req.headers["x-api-key"] as string;
-    const keyFromBody = req.body?.key as string;
-    
-    const providedKey = keyFromHeader || keyFromQuery || keyFromBody;
-    
-    // ✅ ใช้ APPROVER_KEY.value() แทน process.env.APPROVER_KEY
-    if (providedKey && providedKey === APPROVER_KEY.value()) {
-      isAuthorized = true;
-    }
-  }
-
-  if (!isAuthorized) {
-    res.status(403).json({ ok: false, error: "Forbidden" });
-    return;
-  }
-
-  // ดึงข้อมูลจาก Firestore
+// ---------- Utils ----------
+function b64encode(obj: unknown): string {
+  return Buffer.from(JSON.stringify(obj)).toString("base64");
+}
+function b64decode<T = any>(b64: string): T | null {
   try {
-    const limit = parseInt(req.query.limit as string) || 100;
-    
-    // ✅ ดึงข้อมูลครบถ้วนจาก Firestore
-    const snapshot = await db
+    return JSON.parse(Buffer.from(String(b64), "base64").toString("utf8")) as T;
+  } catch {
+    return null;
+  }
+}
+function toMillis(anyVal: any): number | undefined {
+  if (anyVal == null) return undefined;
+  if (typeof anyVal?.toMillis === "function") {
+    try { return (anyVal as any).toMillis(); } catch {}
+  }
+  if (typeof anyVal === "number" && isFinite(anyVal)) {
+    const abs = Math.abs(anyVal);
+    if (abs < 1e11) return anyVal * 1000;          // sec -> ms
+    if (abs < 1e13) return anyVal;                 // ms
+    if (abs < 1e16) return Math.floor(anyVal / 1e3); // µs -> ms
+    return Math.floor(anyVal / 1e6);               // ns -> ms
+  }
+  if (typeof anyVal === "string") {
+    const t = Date.parse(anyVal);
+    if (!Number.isNaN(t)) return t;
+    const n = Number(anyVal);
+    if (Number.isFinite(n)) return toMillis(n);
+  }
+  const sec = (anyVal as any)?.seconds ?? (anyVal as any)?._seconds;
+  const nsec = (anyVal as any)?.nanoseconds ?? (anyVal as any)?._nanoseconds ?? 0;
+  if (typeof sec === "number") return sec * 1000 + Math.round(nsec / 1e6);
+  return undefined;
+}
+
+// ---------- Main ----------
+export const listRequests = onRequest(
+  {
+    region: "asia-southeast1",
+    timeoutSeconds: 60,
+    memory: "256MiB",
+  },
+  async (req, res) => {
+    setCorsHeaders(req, res);
+    if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+
+    // -------- AuthN/AuthZ: ใช้เฉพาะ ID Token --------
+    const authHeader = String(req.headers.authorization || "");
+    if (!authHeader.startsWith("Bearer ")) {
+      res.status(401).json({ ok: false, error: "Missing Bearer token" });
+      return;
+    }
+
+    let email: string | undefined;
+    try {
+      const idToken = authHeader.slice("Bearer ".length);
+      const decoded = await getAuth().verifyIdToken(idToken);
+      email = decoded.email?.toLowerCase();
+    } catch (e) {
+      warn("listRequests: verifyIdToken failed", { error: String(e) });
+      res.status(401).json({ ok: false, error: "Invalid token" });
+      return;
+    }
+
+    if (!email) {
+      res.status(403).json({ ok: false, error: "No email in token" });
+      return;
+    }
+
+    const allowedRoles = new Set(["viewer", "approver", "admin", "superadmin"]);
+    const adminSnap = await db.collection("admins").where("email", "==", email).limit(1).get();
+    if (adminSnap.empty) { res.status(403).json({ ok: false, error: "Not authorized" }); return; }
+    const admin = adminSnap.docs[0].data() as any;
+    if (!admin?.enabled || !allowedRoles.has(String(admin?.role))) {
+      res.status(403).json({ ok: false, error: "Not authorized" });
+      return;
+    }
+
+    // -------- Query params --------
+    const limitParam = Math.max(1, Math.min(Number(req.query.limit ?? 100), 1000));
+    const pageToken = (req.query.pageToken as string) || "";
+
+    // -------- Build query: สั่งเรียงนิ่ง (tie-break ด้วย doc id) --------
+    let q = db
       .collection("requests")
       .orderBy("createdAt", "desc")
-      .limit(Math.min(limit, 1000))
-      .get();
+      .orderBy("__name__", "desc");
 
-    const items = snapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        rid: doc.id,
-        id: doc.id,
-        // ✅ เพิ่ม mapping ให้ครบถ้วน
-        status: data.status || "pending",
-        createdAt: data.createdAt,
-        updatedAt: data.updatedAt,
-        approvedAt: data.decision?.at || data.approvedAt,
-        rejectedAt: data.decision?.at || data.rejectedAt,
-        // ✅ ดึงข้อมูล requester ออกมาเป็น flat structure
-        contractorName: data.requester?.fullname || data.requester?.name || "",
-        requesterName: data.requester?.fullname || data.requester?.name || "",
-        contractorCompany: data.requester?.company || "",
-        // ✅ ดึงข้อมูล work ออกมาเป็น flat structure  
-        workType: data.work?.type || "",
-        jobType: data.work?.category || data.work?.type || "",
-        permitType: data.work?.type || "",
-        // เก็บ nested structure ไว้ด้วย (เผื่อ frontend บางส่วนใช้)
-        requester: data.requester,
-        work: data.work,
-        // ข้อมูลอื่น ๆ
-        ...data
-      };
-    });
-
-    res.status(200).json({
-      ok: true,
-      data: {
-        items,
-        count: items.length
+    if (pageToken) {
+      const parsed = b64decode<{ createdAtMillis: number; id: string }>(pageToken);
+      if (parsed?.createdAtMillis && parsed?.id) {
+        q = q.startAfter(Timestamp.fromMillis(parsed.createdAtMillis), parsed.id);
       }
-    });
+    }
 
-  } catch (error) {
-    console.error("Error fetching requests:", error);
-    res.status(500).json({ ok: false, error: "Internal Server Error" });
+    try {
+      const snap = await q.limit(limitParam).get();
+
+      const items = snap.docs.map((doc) => {
+        const data = doc.data() as any;
+        return {
+          rid: doc.id,
+          id: doc.id,
+          status: data.status ?? "pending",
+          createdAt: data.createdAt ?? null,
+          updatedAt: data.updatedAt ?? null,
+          approvedAt: data.decision?.at ?? data.approvedAt ?? null,
+          rejectedAt: data.decision?.at ?? data.rejectedAt ?? null,
+          contractorName: data.requester?.fullname || data.requester?.name || "",
+          requesterName: data.requester?.fullname || data.requester?.name || "",
+          contractorCompany: data.requester?.company || "",
+          workType: data.work?.type || "",
+          jobType: data.work?.category || data.work?.type || "",
+          permitType: data.work?.type || "",
+          requester: data.requester,
+          work: data.work,
+          ...data,
+        };
+      });
+
+      let nextPageToken: string | undefined;
+      if (snap.size === limitParam) {
+        const last = snap.docs[snap.docs.length - 1];
+        const lastMs = toMillis(last.get("createdAt"));
+        if (lastMs) nextPageToken = b64encode({ createdAtMillis: lastMs, id: last.id });
+      }
+
+      res.status(200).json({ ok: true, data: { items, count: items.length, nextPageToken } });
+      return;
+    } catch (err: any) {
+      error("listRequests: query failed", { error: String(err) });
+      res.status(500).json({ ok: false, error: "Internal Server Error" });
+      return;
+    }
   }
-});
+);
