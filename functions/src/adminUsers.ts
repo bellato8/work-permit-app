@@ -66,7 +66,7 @@ function errToString(e: any) {
 // ======================================================================
 // 1) listAdmins (GET/POST)
 // ======================================================================
-export const listAdmins = onRequest(
+export const listadmins = onRequest(
   { region: REGION, secrets: [APPROVER_KEY] },
   withCors(async (req, res) => {
     try {
@@ -97,7 +97,7 @@ export const listAdmins = onRequest(
       });
       ok(res, { items });
     } catch (e) {
-      logger.error("[listAdmins] internal_error", { err: errToString(e) });
+      logger.error("[listadmins] internal_error", { err: errToString(e) });
       res.status(500).json({ ok: false, error: "internal_error", reason: errToString(e) });
     }
   })

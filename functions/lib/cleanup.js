@@ -1,12 +1,12 @@
 "use strict";
 // ======================================================================
 // File: functions/src/cleanup.ts
-// เวอร์ชัน: 2025-09-18 23:10 (Asia/Bangkok)
-// หน้าที่: ฟังก์ชันล้างงานตาม RID และลบ logs (จำกัดเฉพาะ superadmin)
+// เวอร์ชัน: 2025-10-06 (Asia/Bangkok)
+// หน้าที่: ฟังก์ชันล้างงานตาม RID และ "ลบล็อกแบบงานทำความสะอาด" (จำกัดเฉพาะ superadmin)
 // เชื่อม auth ผ่าน Firebase Admin SDK (initializeApp อยู่ใน index.ts แล้ว)
 // หมายเหตุ:
-// - ยกระดับตรวจสิทธิ์: รับทั้ง custom claims และ Firestore (adminUsers / admins)
-// - ล็อกดีบักไว้ให้ วิเคราะห์ได้ถ้ามีเคส token ค้าง
+// - ตรวจสิทธิ์สองชั้น: custom claims และ Firestore (adminUsers / admins)
+// - เปลี่ยนชื่อ export จาก deleteLogs → cleanupDeleteLogs เพื่อกันชนกับไฟล์ deleteLogs.ts
 // ======================================================================
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -42,7 +42,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteLogs = exports.deleteRequestCascade = void 0;
+exports.cleanupDeleteLogs = exports.deleteRequestCascade = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const admin = __importStar(require("firebase-admin"));
 // ใช้ instance เดียวที่ถูก initialize ที่ index.ts
@@ -127,8 +127,8 @@ exports.deleteRequestCascade = (0, https_1.onCall)({
     console.log("[cleanup] cascade deleted", { rid, files: files.length });
     return { ok: true, rid, deleted: { firestore: true, storageFiles: files.length } };
 });
-// ====== 2) ลบ Logs ======
-exports.deleteLogs = (0, https_1.onCall)({
+// ====== 2) ลบ Logs (รีเนมเป็น cleanupDeleteLogs เพื่อกันชน) ======
+exports.cleanupDeleteLogs = (0, https_1.onCall)({
     region: "asia-southeast1",
     timeoutSeconds: 540,
     memory: "1GiB",

@@ -38,7 +38,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.removeAdmin = exports.updateAdminRole = exports.addAdmin = exports.listAdmins = void 0;
+exports.removeAdmin = exports.updateAdminRole = exports.addAdmin = exports.listadmins = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
 const logger = __importStar(require("firebase-functions/logger"));
@@ -97,7 +97,7 @@ function errToString(e) {
 // ======================================================================
 // 1) listAdmins (GET/POST)
 // ======================================================================
-exports.listAdmins = (0, https_1.onRequest)({ region: REGION, secrets: [APPROVER_KEY] }, (0, withCors_1.withCors)(async (req, res) => {
+exports.listadmins = (0, https_1.onRequest)({ region: REGION, secrets: [APPROVER_KEY] }, (0, withCors_1.withCors)(async (req, res) => {
     try {
         if (!["GET", "POST"].includes(req.method))
             return fail(res, "method_not_allowed", 405);
@@ -128,7 +128,7 @@ exports.listAdmins = (0, https_1.onRequest)({ region: REGION, secrets: [APPROVER
         ok(res, { items });
     }
     catch (e) {
-        logger.error("[listAdmins] internal_error", { err: errToString(e) });
+        logger.error("[listadmins] internal_error", { err: errToString(e) });
         res.status(500).json({ ok: false, error: "internal_error", reason: errToString(e) });
     }
 }));
