@@ -1,30 +1,25 @@
 // ======================================================================
-// ไฟล์: functions/src/adminUsers.ts
-// เวอร์ชัน: 2025-09-03+fix-undefined-in-payload
-// โหมดจับมือทำ — แก้ 500 จาก undefined fields ใน Firestore
+// File: functions/src/adminUsers.ts (เวอร์ชันสมบูรณ์)
+// เวอร์ชัน: 2025-10-08 (Final Version)
+// แก้ไข: เอา initializeApp() ออก เพราะถูกย้ายไปที่ index.ts แล้ว
 // ======================================================================
 
 import { onRequest } from "firebase-functions/v2/https";
-import { defineSecret } from "firebase-functions/params";
 import * as logger from "firebase-functions/logger";
-import { getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
 import { withCors } from "./withCors";
 import { checkCanManageUsers } from "./authz";
 
-// --- Bootstrap admin SDK ---
-if (!getApps().length) initializeApp();
+// App ได้ถูก initialize ที่ไฟล์ index.ts แล้ว
+// เราจึงสามารถเรียกใช้ service ต่างๆ ได้เลย
 const db = getFirestore();
+const auth = getAuth();
 
-// --- Region/Secrets
+// --- Config ---
 const REGION = "asia-southeast1";
-const APPROVER_KEY = defineSecret("APPROVER_KEY");
 
-// ---------- Helpers เดิม (คงไว้) ----------
-function needKey(req: any): string {
-  const k = (req.query?.key as string) || req.body?.key || req.headers["x-api-key"];
-  return typeof k === "string" ? k : "";
-}
+// ---------- Helpers ----------
 function whoRequested(req: any): string | undefined {
   const r =
     (req.body?.requester as string) ||
@@ -45,35 +40,99 @@ function ok(res: any, data: any) {
 function fail(res: any, error: string, code = 400) {
   res.status(code).json({ ok: false, error });
 }
-function checkKeyOrFail(req: any, res: any) {
-  const provided = needKey(req);
-  const secretVal = APPROVER_KEY.value() || process.env.APPROVER_KEY || "";
-  if (!provided || provided !== secretVal) {
-    fail(res, "unauthorized", 401);
-    return false;
+
+// ----- สิทธิ์ตามบทบาท (Preset) + รวมกับที่ส่งมาได้ -----
+type Caps = Record<string, boolean>;
+function presetCaps(role: string): Caps {
+  const viewer: Caps = {
+    view_permits: true,
+    view_dashboard: true,
+  };
+  const approver: Caps = {
+    ...viewer,
+    review_requests: true,
+    approve_requests: true,
+    reject_requests: true,
+    view_reports: true,
+    view_logs: true,
+  };
+  const admin: Caps = {
+    ...approver,
+    manage_settings: true,
+    export_sensitive: true,
+  };
+  const superadmin: Caps = {
+    ...admin,
+    manage_users: true,
+    delete_requests: true,
+  };
+
+  switch ((role || "").toLowerCase()) {
+    case "approver":
+      return approver;
+    case "admin":
+      return admin;
+    case "superadmin":
+    case "super_admin":
+      return superadmin;
+    default:
+      return viewer;
   }
-  return true;
 }
-function mergeCapsByRole(role: string, caps?: Record<string, any>) {
-  // … (คงฟังก์ชันเดิมทั้งหมดของไฟล์นี้ไว้)
-  // โค้ดส่วนอื่นๆ ไม่เปลี่ยน
-  return caps;
+
+function normalizeCapKey(k: string): string {
+  const m = (k || "").trim();
+  switch (m) {
+    case "viewAll":
+    case "view_all":
+      return "view_all";
+    case "approve":
+      return "approve_requests";
+    case "reject":
+      return "reject_requests";
+    case "manageUsers":
+      return "manage_users";
+    case "manageRequests":
+      return "review_requests";
+    default:
+      return m;
+  }
 }
+
+function mergeCapsByRole(role: string, caps?: Record<string, any>): Caps {
+  const base = presetCaps(role);
+  if (!caps || typeof caps !== "object") return base;
+
+  const extra: Caps = {};
+  for (const [k, v] of Object.entries(caps)) {
+    const key = normalizeCapKey(k);
+    if (!key) continue;
+    if (key === "view_all" && v) {
+      extra.view_permits = true;
+      extra.view_dashboard = true;
+      extra.view_reports = true;
+      extra.view_logs = true;
+      continue;
+    }
+    extra[key] = !!v;
+  }
+  return { ...base, ...extra };
+}
+
 function errToString(e: any) {
   return e && (e.stack || e.message) ? e.stack || e.message : String(e);
 }
 
 // ======================================================================
-// 1) listAdmins (GET/POST)
+// 1) listadmins (GET/POST)
 // ======================================================================
 export const listadmins = onRequest(
-  { region: REGION, secrets: [APPROVER_KEY] },
+  { region: REGION },
   withCors(async (req, res) => {
     try {
       if (!["GET", "POST"].includes(req.method)) return fail(res, "method_not_allowed", 405);
-      if (!checkKeyOrFail(req, res)) return;
 
-      // ✨ NEW: ตรวจสิทธิ์ manage_users
+      // ตรวจ ID Token + ต้องมี manage_users
       const gate = await checkCanManageUsers(req as any);
       if (!gate.ok) return fail(res, gate.error || "forbidden", gate.status || 403);
 
@@ -104,50 +163,91 @@ export const listadmins = onRequest(
 );
 
 // ======================================================================
-// 2) addAdmin (POST)
+// 2) addAdmin (POST) — เพิ่มผู้ใช้ + ให้สิทธิ์ + ออกลิงก์ตั้งรหัส
 // ======================================================================
 export const addAdmin = onRequest(
-  { region: REGION, secrets: [APPROVER_KEY] },
+  { region: REGION },
   withCors(async (req, res) => {
     try {
       if (req.method !== "POST") return fail(res, "method_not_allowed", 405);
-      if (!checkKeyOrFail(req, res)) return;
 
-      // ✨ NEW: ตรวจสิทธิ์ manage_users
+      // ตรวจ ID Token + ต้องมี manage_users
       const gate = await checkCanManageUsers(req as any);
       if (!gate.ok) return fail(res, gate.error || "forbidden", gate.status || 403);
 
       const email = normalizeEmail(req.body?.email ?? req.query?.email);
+      if (!email) return fail(res, "invalid_email");
+
       const roleIn = String(req.body?.role || "viewer").toLowerCase();
       const capsIn = req.body?.caps && typeof req.body.caps === "object" ? req.body.caps : undefined;
       const caps = mergeCapsByRole(roleIn, capsIn);
 
       const nameIn = typeof req.body?.name === "string" ? req.body.name : undefined;
-      const uidIn = typeof req.body?.uid === "string" ? req.body.uid : undefined;
       const sourceIn = typeof req.body?.source === "string" ? req.body.source : "manual";
       const enabledIn = typeof req.body?.enabled === "boolean" ? req.body.enabled : true;
       const updatedBy = whoRequested(req);
 
+      // 2.1 หา/สร้างผู้ใช้ใน Auth
+      let user;
+      try {
+        user = await auth.getUserByEmail(email);
+      } catch (e: any) {
+        if (e?.code === "auth/user-not-found") {
+          user = await auth.createUser({ email, displayName: nameIn });
+        } else {
+          throw e;
+        }
+      }
+      const uid = user.uid;
+
+      // 2.2 ตั้ง custom claims (role + caps)
+      await auth.setCustomUserClaims(uid, {
+        role: roleIn,
+        caps,
+        is_admin: true,
+      });
+
+      // 2.3 เขียน Firestore (admins/{email})
       const id = emailId(email);
       const ref = db.collection("admins").doc(id);
       const existed = await ref.get();
-      if (existed.exists) return fail(res, "email_already_exists", 409);
+      if (existed.exists) {
+        // ถ้ามีอยู่แล้วให้ merge สิทธิ์/บทบาท (กันเคสเพิ่มซ้ำ)
+        await ref.set(
+          {
+            role: roleIn,
+            caps,
+            uid,
+            source: sourceIn,
+            enabled: enabledIn,
+            updatedBy: updatedBy || null,
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } else {
+        await ref.set({
+          email,
+          role: roleIn,
+          caps,
+          uid,
+          source: sourceIn,
+          enabled: enabledIn,
+          updatedBy: updatedBy || null,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
 
-      const payload: Record<string, any> = {
-        email, role: roleIn, caps,
-        source: sourceIn, enabled: enabledIn,
-        updatedBy: updatedBy || null,
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      };
-      if (nameIn !== undefined) payload.name = nameIn;
-      if (uidIn !== undefined) payload.uid = uidIn;
+      // 2.4 ออกลิงก์ตั้งรหัส (เผื่อผู้ใช้ยังไม่มีรหัส)
+      let link: string | undefined = undefined;
+      try {
+        link = await auth.generatePasswordResetLink(email);
+      } catch (e) {
+        logger.warn("[admins] add: cannot generate reset link", { email, err: errToString(e) });
+      }
 
-      logger.info("[admins] add: about to write", { email, role: roleIn, by: updatedBy });
-      await ref.set(payload);
-      logger.info("[admins] add: done", { email, role: roleIn, by: updatedBy });
-
-      ok(res, { email, role: roleIn, caps, enabled: enabledIn });
+      ok(res, { email, role: roleIn, caps, uid, enabled: enabledIn, link });
     } catch (e) {
       logger.error("[addAdmin] internal_error", { err: errToString(e) });
       res.status(500).json({ ok: false, error: "internal_error", reason: errToString(e) });
@@ -159,13 +259,12 @@ export const addAdmin = onRequest(
 // 3) updateAdminRole (POST)
 // ======================================================================
 export const updateAdminRole = onRequest(
-  { region: REGION, secrets: [APPROVER_KEY] },
+  { region: REGION },
   withCors(async (req, res) => {
     try {
       if (req.method !== "POST") return fail(res, "method_not_allowed", 405);
-      if (!checkKeyOrFail(req, res)) return;
 
-      // ✨ NEW: ตรวจสิทธิ์ manage_users
+      // ตรวจ ID Token + ต้องมี manage_users
       const gate = await checkCanManageUsers(req as any);
       if (!gate.ok) return fail(res, gate.error || "forbidden", gate.status || 403);
 
@@ -202,6 +301,18 @@ export const updateAdminRole = onRequest(
       await ref.set(updates, { merge: true });
       logger.info("[admins] update", { email, role: nextRole, enabled: updates.enabled, by: updatedBy });
 
+      // ตั้ง claims ให้สอดคล้อง (ถ้ามี uid ใน doc)
+      try {
+        const uid = (prev?.uid as string) || (await auth.getUserByEmail(email)).uid;
+        await auth.setCustomUserClaims(uid, {
+          role: nextRole,
+          caps: nextCaps,
+          is_admin: true,
+        });
+      } catch (e) {
+        logger.warn("[admins] update: cannot set claims", { email, err: errToString(e) });
+      }
+
       ok(res, { email, role: nextRole, caps: nextCaps, enabled: updates.enabled ?? prev?.enabled ?? true });
     } catch (e) {
       logger.error("[updateAdminRole] internal_error", { err: errToString(e) });
@@ -214,13 +325,12 @@ export const updateAdminRole = onRequest(
 // 4) removeAdmin (POST/DELETE)
 // ======================================================================
 export const removeAdmin = onRequest(
-  { region: REGION, secrets: [APPROVER_KEY] },
+  { region: REGION },
   withCors(async (req, res) => {
     try {
       if (!["POST", "DELETE"].includes(req.method)) return fail(res, "method_not_allowed", 405);
-      if (!checkKeyOrFail(req, res)) return;
 
-      // ✨ NEW: ตรวจสิทธิ์ manage_users
+      // ตรวจ ID Token + ต้องมี manage_users
       const gate = await checkCanManageUsers(req as any);
       if (!gate.ok) return fail(res, gate.error || "forbidden", gate.status || 403);
 
@@ -229,6 +339,8 @@ export const removeAdmin = onRequest(
 
       const by = whoRequested(req);
       await db.collection("admins").doc(emailId(email)).delete();
+
+      // ไม่ลบบัญชี Auth อัตโนมัติ (กันลบผิด)
       logger.info("[admins] remove", { email, by });
       ok(res, { email, removed: true });
     } catch (e) {

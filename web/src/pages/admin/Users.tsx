@@ -1,12 +1,11 @@
 // ======================================================================
 // File: web/src/pages/admin/Users.tsx
-// เวอร์ชัน: 30/09/2025 (หลังปรับ CORS/เฮดเดอร์)
+// เวอร์ชัน: 2025-10-08  (force-refresh ID token ทุกครั้ง + refresh on mount)
 // หน้าที่: จัดการผู้ใช้แอดมิน (ดู/เพิ่ม/แก้สิทธิ์/ปิดเปิด/ลบ/เชิญ)
-// แนวใหม่: แนบแค่ Authorization: Bearer <ID_TOKEN> + Content-Type เท่านั้น
-// อ้างอิง:
-// - Cloud Run end-user auth: ส่ง ID token ใน Authorization: Bearer ... :contentReference[oaicite:6]{index=6}
-// - Firebase Admin verifyIdToken: ตรวจบัตรฝั่ง server :contentReference[oaicite:7]{index=7}
-// - CORS/Preflight: เฮดเดอร์แปลกทำให้ต้องขออนุญาต Access-Control-Allow-Headers :contentReference[oaicite:8]{index=8}
+// หมายเหตุ:
+//  - สาเหตุ 401 ที่เจอ: token ไม่ได้รีเฟรชหลังปรับสิทธิ์ → บังคับ getIdToken(true)
+//  - อ้างอิง: Firebase แนะนำให้ force refresh ด้วย currentUser.getIdToken(true)
+//    เมื่อมีการเปลี่ยน custom claims หรือเพิ่ง grant สิทธิ์ใหม่
 // ======================================================================
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -31,7 +30,7 @@ import { hasCap, isSuperadmin } from "../../lib/hasCap";
 import CapButton from "../../components/CapButton";
 import CapBlock from "../../components/CapBlock";
 
-// 🔐 Firebase — guard ให้แอปถูก initialize เสมอ ก่อนเรียก getAuth()
+// 🔐 Firebase init
 import { getApps, initializeApp } from "firebase/app";
 try {
   if (typeof window !== "undefined" && getApps().length === 0) {
@@ -44,10 +43,10 @@ try {
   }
 } catch {}
 
-// 🔐 Firebase Auth — ใช้ดึง user และ ID Token
+// 🔐 Auth
 import { getAuth, getIdToken, onAuthStateChanged } from "firebase/auth";
 
-// ---------- ประเภทข้อมูล ----------
+// ---------- Types ----------
 type Role = "superadmin" | "admin" | "approver" | "viewer";
 type LegacyCaps = {
   approve?: boolean; reject?: boolean; delete?: boolean; export?: boolean;
@@ -65,7 +64,7 @@ type AdminRow = {
   updatedAt?: number | string | { _seconds?: number; _nanoseconds?: number };
 };
 
-// ---------- ค่าเริ่มต้นตามบทบาท ----------
+// ---------- Default caps per role ----------
 const DEFAULT_CAPS_BY_ROLE: Record<Role, Caps> = {
   superadmin: { view_all: true, manageUsers: true, system_settings: true, view_reports: true, audit_log: true },
   admin:      { view_all: true, view_reports: true, audit_log: true },
@@ -73,7 +72,7 @@ const DEFAULT_CAPS_BY_ROLE: Record<Role, Caps> = {
   viewer:     { view_all: false },
 };
 
-// ---------- URL ฟังก์ชัน ----------
+// ---------- Function URLs ----------
 const URLS = {
   list:   (import.meta.env.VITE_LIST_ADMINS_URL as string)        || "",
   add:    (import.meta.env.VITE_ADD_ADMIN_URL as string)          || "",
@@ -83,7 +82,7 @@ const URLS = {
 };
 
 // ======================================================================
-// 🔄 AUTH HELPERS — ส่งเฉพาะ Bearer + Content-Type (ตัดโหมดชั่วคราวออกทั้งหมด)
+// Auth helpers — บังคับรีเฟรช token เสมอก่อนเรียก API
 // ======================================================================
 
 function currentRequesterEmail(): string {
@@ -93,10 +92,12 @@ function currentRequesterEmail(): string {
   return (env || "").trim();
 }
 
+// ⬇⬇⬇ ปรับจุดเดียว: ใช้ getIdToken(user, true) เสมอ
 async function authzHeaders(): Promise<Record<string, string>> {
   const user = getAuth().currentUser;
   if (!user) throw new Error("กรุณาเข้าสู่ระบบก่อนใช้งาน");
-  const token = await getIdToken(user);
+  // force refresh → ดึง claims ล่าสุดเข้ามาใน ID token
+  const token = await getIdToken(user, true);
   return {
     "Content-Type": "application/json",
     "Authorization": `Bearer ${token}`,
@@ -126,7 +127,7 @@ function roleRank(r?: string | null) {
   return 0;
 }
 
-// ---------- ส่วนเลือกสิทธิ์ ----------
+// ---------- Caps editor ----------
 function CapsEditor({
   value,
   onChange,
@@ -185,26 +186,29 @@ function CapsEditor({
   );
 }
 
-// ---------- หน้า Users ----------
+// ---------- Page ----------
 export default function Users() {
   const [rows, setRows] = useState<AdminRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // requester ปัจจุบัน (อ่านจากผู้ที่ล็อกอิน)
+  // auth-ready gate
+  const [authReady, setAuthReady] = useState(false);
+
+  // requester
   const [requester, setRequester] = useState<string>(currentRequesterEmail());
 
-  // ช่องค้นหา + ฟอร์มเพิ่ม
+  // search + add form
   const [search, setSearch] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [newRole, setNewRole] = useState<Role>("viewer");
 
-  // สถานะทำงานรายแถว
+  // per-row action states
   const [savingEmail, setSavingEmail] = useState("");
   const [togglingEmail, setTogglingEmail] = useState("");
   const [removingEmail, setRemovingEmail] = useState("");
 
-  // เชิญตั้งรหัสผ่าน
+  // invite
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteTarget, setInviteTarget] = useState("");
   const [inviteLoading, setInviteLoading] = useState(false);
@@ -213,21 +217,31 @@ export default function Users() {
 
   const [snack, setSnack] = useState<{ open: boolean; ok?: boolean; msg: string }>({ open: false, msg: "" });
 
-  // === อ่านสิทธิ์สด (ด่านกลาง) ===
+  // live authz
   const live = useAuthzLive() ?? {};
   const canManageUsersAuthz =
     isSuperadmin(live.role) || hasCap(live.caps, "manage_users", live.role);
 
-  // อัปเดต requester เมื่อสถานะล็อกอินเปลี่ยน
+  // wait for auth state before any API
   useEffect(() => {
     const auth = getAuth();
-    const unsub = onAuthStateChanged(auth, (u) => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
       setRequester(u?.email || "");
+      setAuthReady(true);
+      if (u) {
+        // บังคับรีเฟรช 1 ครั้งหลัง login เพื่อเคลียร์ claims เก่า
+        try { await getIdToken(u, true); } catch {}
+        loadList();
+      } else {
+        setRows([]);
+        setErr(null); // ไม่แสดง error แดงจนกว่าจะกดปุ่มเอง
+      }
     });
     return () => unsub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // โหลดรายการผู้ใช้จาก API
+  // load list
   async function loadList() {
     if (!URLS.list) { setErr("ยังไม่ได้ตั้งค่า VITE_LIST_ADMINS_URL"); return; }
     setLoading(true); setErr(null);
@@ -273,9 +287,8 @@ export default function Users() {
       setLoading(false);
     }
   }
-  useEffect(() => { loadList(); /* eslint-disable-next-line */ }, []);
 
-  // === คำนวณสิทธิ์ของ requester (frontend gating เดิม + สิทธิ์สด) ===
+  // === legacy + live gates ===
   const requesterLower = (requester || "").trim().toLowerCase();
   const me = useMemo(
     () => rows.find(r => r.email.toLowerCase() === requesterLower),
@@ -284,27 +297,43 @@ export default function Users() {
   const canManageUsersLegacy = !!(me && (me.role === "superadmin" || (me.caps?.manageUsers === true)));
   const canManageUsers = !!(canManageUsersAuthz || canManageUsersLegacy);
 
-  // เพิ่มผู้มีสิทธิ์ใหม่
+  // === Add (2-phase) ===
   async function onAdd() {
     if (!canManageUsers) { setSnack({ open: true, ok: false, msg: "forbidden: need manage_users" }); return; }
     if (!newEmail.trim() || !isEmail(newEmail)) {
       setSnack({ open: true, ok: false, msg: "กรุณากรอกอีเมลให้ถูกต้อง" });
       return;
     }
+    const email = newEmail.trim().toLowerCase();
     try {
       const headers = await authzHeaders();
-      const res = await fetch(URLS.add, { method: "POST", headers, body: JSON.stringify({ email: newEmail.trim(), role: newRole }) });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok || j?.ok === false) throw new Error(j?.error || `เพิ่มไม่สำเร็จ (HTTP ${res.status})`);
+
+      // Phase 1: สร้างผู้ใช้ + ขอ link ตั้งรหัสผ่าน
+      const res1 = await fetch(URLS.add, { method: "POST", headers, body: JSON.stringify({ email, role: newRole }) });
+      const j1 = await res1.json().catch(() => ({}));
+      if (!res1.ok || j1?.ok === false) throw new Error(j1?.error || `เพิ่มไม่สำเร็จ (HTTP ${res1.status})`);
+
+      const link = String(j1?.link || "");
+      if (link) {
+        setInviteTarget(email);
+        setInviteLink(link);
+        setInviteResultOpen(true);
+      }
+
+      // Phase 2: เขียนเอกสาร admins/{email} ให้แน่ใจ
+      const res2 = await fetch(URLS.update, { method: "POST", headers, body: JSON.stringify({ email, role: newRole, enabled: true }) });
+      const j2 = await res2.json().catch(() => ({}));
+      if (!res2.ok || j2?.ok === false) throw new Error(j2?.error || `อัปเดต Firestore ไม่สำเร็จ (HTTP ${res2.status})`);
+
       setNewEmail(""); setNewRole("viewer");
       await loadList();
-      setSnack({ open: true, ok: true, msg: "เพิ่มผู้มีสิทธิ์สำเร็จ" });
+      setSnack({ open: true, ok: true, msg: "เพิ่มผู้ใช้ + เขียนสิทธิ์สำเร็จ" });
     } catch (e: any) {
       setSnack({ open: true, ok: false, msg: `เพิ่มไม่สำเร็จ: ${e?.message || e}` });
     }
   }
 
-  // บันทึกสิทธิ์/บทบาท
+  // Save
   async function onSaveRow(email: string, role: Role, caps: Caps) {
     if (!canManageUsers) { setSnack({ open: true, ok: false, msg: "forbidden: need manage_users" }); return; }
     if (!isEmail(email)) { setSnack({ open: true, ok: false, msg: "ระเบียนนี้ไม่มีอีเมลที่ถูกต้อง (legacy)" }); return; }
@@ -323,7 +352,7 @@ export default function Users() {
     }
   }
 
-  // เปิด/ปิดการใช้งาน
+  // Toggle enabled
   async function onToggle(email: string, enabled: boolean) {
     if (!canManageUsers) { setSnack({ open: true, ok: false, msg: "forbidden: need manage_users" }); return; }
     if (!isEmail(email)) { setSnack({ open: true, ok: false, msg: "ระเบียนนี้ไม่มีอีเมลที่ถูกต้อง (legacy)" }); return; }
@@ -342,7 +371,7 @@ export default function Users() {
     }
   }
 
-  // ลบผู้มีสิทธิ์
+  // Remove
   async function onRemove(email: string) {
     if (!canManageUsers) { setSnack({ open: true, ok: false, msg: "forbidden: need manage_users" }); return; }
     if (!isEmail(email)) { setSnack({ open: true, ok: false, msg: "ระเบียนนี้ไม่มีอีเมลที่ถูกต้อง (legacy)" }); return; }
@@ -361,7 +390,7 @@ export default function Users() {
     }
   }
 
-  // === เชิญตั้ง/รีเซ็ตรหัสผ่าน ===
+  // Invite
   function openInvite(email: string) { setInviteTarget(email); setInviteOpen(true); }
   function closeInvite() { if (!inviteLoading) setInviteOpen(false); }
 
@@ -388,7 +417,7 @@ export default function Users() {
     }
   }
 
-  // กรองรายการตามช่องค้นหา
+  // Filter
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
@@ -398,11 +427,19 @@ export default function Users() {
     );
   }, [rows, search]);
 
+  const showReadOnlyWarn = authReady && !canManageUsers;
+
   return (
     <Container maxWidth="lg" sx={{ py: 2 }}>
-      {!canManageUsers && (
+      {showReadOnlyWarn && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           โหมดอ่านอย่างเดียว: ผู้ใช้ <b>{requester || "-"}</b> ไม่มีสิทธิ์ <code>manage_users</code> — ปุ่มแก้ไข/บันทึก/ลบ/เชิญถูกปิดไว้
+        </Alert>
+      )}
+
+      {!authReady && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          กำลังตรวจสอบสถานะการเข้าสู่ระบบ...
         </Alert>
       )}
 
@@ -430,7 +467,7 @@ export default function Users() {
             }}
           />
           <Tooltip title="รีเฟรชรายการ">
-            <span><IconButton onClick={loadList} disabled={loading}><RefreshRoundedIcon /></IconButton></span>
+            <span><IconButton onClick={loadList} disabled={loading || !authReady}><RefreshRoundedIcon /></IconButton></span>
           </Tooltip>
         </Stack>
       </Stack>
@@ -445,9 +482,9 @@ export default function Users() {
               placeholder="user@example.com"
               size="small"
               fullWidth
-              disabled={!canManageUsers}
+              disabled={!canManageUsers || !authReady}
             />
-            <FormControl size="small" sx={{ minWidth: 180 }} disabled={!canManageUsers}>
+            <FormControl size="small" sx={{ minWidth: 180 }} disabled={!canManageUsers || !authReady}>
               <InputLabel>บทบาท</InputLabel>
               <Select label="บทบาท" value={newRole} onChange={e => setNewRole(e.target.value as Role)}>
                 <MenuItem value="superadmin">Super Admin</MenuItem>
@@ -461,7 +498,7 @@ export default function Users() {
               variant="contained"
               startIcon={<AddRoundedIcon />}
               onClick={onAdd}
-              disabled={loading}
+              disabled={loading || !authReady}
             >
               เพิ่ม
             </CapButton>
@@ -470,16 +507,9 @@ export default function Users() {
         </Paper>
       </CapBlock>
 
-      <Box
-        sx={{
-          display: "grid",
-          gap: 2,
-          gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" },
-        }}
-      >
+      <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" } }}>
         {(loading && rows.length === 0)
-          ? (
-            Array.from({ length: 4 }).map((_, i) => (
+          ? Array.from({ length: 4 }).map((_, i) => (
               <Box key={`sk-${i}`}>
                 <Card variant="outlined">
                   <CardContent>
@@ -491,29 +521,23 @@ export default function Users() {
                 </Card>
               </Box>
             ))
-          )
-          : (
-            filtered.map((r, idx) => {
+          : filtered.map((r, idx) => {
               const invalidEmail = !isEmail(r.email);
               return (
                 <Box key={r.email || `no-email-${idx}`}>
                   <Card variant="outlined" sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
                     <CardContent sx={{ pb: 1 }}>
                       <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Stack spacing={0.5}>
+                        <Stack spacing={.5}>
                           <Typography fontWeight={700}>{r.email || "(ระเบียนเก่า ไม่มีอีเมล)"}</Typography>
                           {!!r.name && <Typography variant="caption" color="text.secondary">{r.name}</Typography>}
-                          <Stack direction="row" spacing={1} sx={{ mt: 0.5, flexWrap: "wrap" }}>
+                          <Stack direction="row" spacing={1} sx={{ mt: .5, flexWrap: "wrap" }}>
                             {invalidEmail && <Chip size="small" color="warning" label="legacy (no email)" />}
-                            <Chip
-                              size="small"
-                              label={r.role}
-                              color={r.role === "superadmin" ? "secondary" : r.role === "admin" ? "primary" : "default"}
-                            />
+                            <Chip size="small" label={r.role} color={r.role === "superadmin" ? "secondary" : r.role === "admin" ? "primary" : "default"} />
                             <Chip size="small" variant="outlined" label={r.enabled === false ? "disabled" : "enabled"} />
                           </Stack>
                         </Stack>
-                        <FormControl size="small" sx={{ minWidth: 160 }} disabled={!canManageUsers || invalidEmail}>
+                        <FormControl size="small" sx={{ minWidth: 160 }} disabled={!canManageUsers || invalidEmail || !authReady}>
                           <InputLabel>บทบาท</InputLabel>
                           <Select
                             label="บทบาท"
@@ -535,7 +559,7 @@ export default function Users() {
 
                       <CapsEditor
                         value={r.caps || {}}
-                        disabled={!canManageUsers || invalidEmail}
+                        disabled={!canManageUsers || invalidEmail || !authReady}
                         onChange={(k, v) =>
                           setRows(prev => prev.map(x => x.email === r.email ? { ...x, caps: { ...(x.caps || {}), [k]: v } } : x))
                         }
@@ -560,7 +584,7 @@ export default function Users() {
                         <Tooltip title={r.enabled === false ? "เปิดการใช้งาน" : "ปิดการใช้งาน"}>
                           <span>
                             <IconButton onClick={() => onToggle(r.email, !(r.enabled !== false))}
-                              disabled={togglingEmail === r.email || !canManageUsers || invalidEmail}>
+                              disabled={togglingEmail === r.email || !canManageUsers || invalidEmail || !authReady}>
                               <PowerSettingsNewRoundedIcon />
                             </IconButton>
                           </span>
@@ -568,7 +592,7 @@ export default function Users() {
                         <Tooltip title="บันทึกการเปลี่ยนแปลง">
                           <span>
                             <IconButton color="primary" onClick={() => onSaveRow(r.email, r.role, r.caps)}
-                              disabled={savingEmail === r.email || !canManageUsers || invalidEmail}>
+                              disabled={savingEmail === r.email || !canManageUsers || invalidEmail || !authReady}>
                               <SaveRoundedIcon />
                             </IconButton>
                           </span>
@@ -576,7 +600,7 @@ export default function Users() {
                         <Tooltip title="เชิญตั้ง/รีเซ็ตรหัสผ่าน">
                           <span>
                             <IconButton color="secondary" onClick={() => openInvite(r.email)}
-                              disabled={(inviteLoading && inviteTarget === r.email) || !canManageUsers || invalidEmail}>
+                              disabled={(inviteLoading && inviteTarget === r.email) || !canManageUsers || invalidEmail || !authReady}>
                               <SendRoundedIcon />
                             </IconButton>
                           </span>
@@ -585,7 +609,7 @@ export default function Users() {
                       <Tooltip title="ลบผู้มีสิทธิ์ (ถาวร)">
                         <span>
                           <IconButton color="error" onClick={() => onRemove(r.email)}
-                            disabled={removingEmail === r.email || !canManageUsers || invalidEmail}>
+                            disabled={removingEmail === r.email || !canManageUsers || invalidEmail || !authReady}>
                             <DeleteForeverRoundedIcon />
                           </IconButton>
                         </span>
@@ -595,7 +619,7 @@ export default function Users() {
                 </Box>
               );
             })
-          )}
+        }
 
         {(filtered.length === 0 && !loading) && (
           <Box sx={{ gridColumn: "1 / -1" }}>
@@ -605,6 +629,7 @@ export default function Users() {
           </Box>
         )}
       </Box>
+      {/* <-- จบ grid container */}
 
       {!!err && <Alert severity="error" sx={{ mt: 2 }}>{err}</Alert>}
 
@@ -612,7 +637,9 @@ export default function Users() {
       <Dialog open={inviteOpen} onClose={() => { if (!inviteLoading) setInviteOpen(false); }}>
         <DialogTitle>ส่งลิงก์ตั้ง/รีเซ็ตรหัสผ่าน</DialogTitle>
         <DialogContent>
-          <DialogContentText>ระบบจะส่งอีเมลคำเชิญไปยัง <b>{inviteTarget}</b> กรุณายืนยัน</DialogContentText>
+          <DialogContentText>
+            ระบบจะส่งอีเมลคำเชิญไปยัง <b>{inviteTarget}</b> กรุณายืนยัน
+          </DialogContentText>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => { if (!inviteLoading) setInviteOpen(false); }} disabled={inviteLoading}>ยกเลิก</Button>
@@ -632,10 +659,12 @@ export default function Users() {
             <Button href={inviteLink || "#"} target="_blank">เปิดลิงก์</Button>
           </Stack>
         </DialogContent>
-        <DialogActions><Button onClick={() => setInviteResultOpen(false)}>ปิด</Button></DialogActions>
+        <DialogActions>
+          <Button onClick={() => setInviteResultOpen(false)}>ปิด</Button>
+        </DialogActions>
       </Dialog>
 
-      {/* Snackbar แจ้งผล */}
+      {/* Snackbar */}
       <Snackbar
         open={snack.open}
         autoHideDuration={4000}

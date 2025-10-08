@@ -1,16 +1,8 @@
 "use strict";
 // ======================================================================
 // File: functions/src/authz.ts
-// เวอร์ชัน: 2025-09-19 21:35
-// หน้าที่: ตัวช่วย Authorization (ออโทไรเซชัน/ส่วนอนุญาต) + RBAC (อาร์บีเอซี/สิทธิ์ตามบทบาท)
-// เชื่อม auth ผ่าน "firebase-admin" (เวอริไฟโทเค็น/verifyIdToken)
-// หมายเหตุ:
-//   - อ่าน admins/{emailLower} เพื่อตรวจ enabled + role + caps (แคปส์/สิทธิ์ย่อย)
-//   - รองรับ alias ของสิทธิ์: approve|decide|manage_requests (สะกดเดิม) และ manageRequests (คาเมลเคส)
-//   - ตรวจ Firebase ID Token จาก Authorization (ออโทรไรเซชัน/ส่วนอนุญาต): Bearer <idToken>
-//   - ถ้ามี header x-requester-email (เอ็กซ์-รีเควสเตอร์-อีเมล) ต้องตรงกับ email ใน token
-//   - คงฟังก์ชันเดิม: checkCanManageUsers() เพื่อเข้ากันได้กับโค้ดเก่า
-// วันที่/เดือน/ปี เวลา: 19/09/2025 21:35 (เวลาไทย)
+// เวอร์ชัน: 2025-10-08 (Recommended Final Version)
+// หน้าที่: ตัวกลางตรวจสอบสิทธิ์ (Authorization Middleware) สำหรับ Cloud Functions
 // ======================================================================
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -52,10 +44,11 @@ exports.requireFirebaseUser = requireFirebaseUser;
 exports.requireCaps = requireCaps;
 exports.checkCanManageUsers = checkCanManageUsers;
 const admin = __importStar(require("firebase-admin"));
-if (!admin.apps.length) {
-    admin.initializeApp();
-}
-// ---------- utils เล็ก ๆ ----------
+const logger = __importStar(require("firebase-functions/logger"));
+// --- สำคัญ! ---
+// เราได้ย้าย admin.initializeApp() ไปไว้ที่ไฟล์ index.ts ซึ่งเป็นไฟล์เริ่มต้น
+// ไฟล์นี้จึงไม่ต้อง initialize เองอีกต่อไป
+const CHECK_REVOKED = process.env.CHECK_REVOKED !== "0";
 function emailKey(email) {
     return (email || "").trim().toLowerCase();
 }
@@ -63,7 +56,6 @@ function normalizeCaps(caps) {
     const c = typeof caps === "object" && caps ? caps : {};
     return {
         ...c,
-        // แปลง alias ให้เป็นคีย์มาตรฐาน (เพื่ออ่านง่ายทั้งเก่า/ใหม่)
         viewAll: typeof c.viewAll === "boolean" ? c.viewAll : !!c.view_all,
         manageUsers: typeof c.manageUsers === "boolean" ? c.manageUsers : !!c.manage_users,
         manageRequests: typeof c.manageRequests === "boolean" ? c.manageRequests : !!c.manage_requests,
@@ -76,7 +68,6 @@ async function readAdminDoc(email) {
     const snap = await admin.firestore().collection("admins").doc(id).get();
     return snap.exists ? snap.data() : undefined;
 }
-/** อ่านอีเมลผู้เรียกจาก header/query/body หากไม่ใช่อีเมลให้คืน undefined */
 function getRequesterEmail(req) {
     const h = String(req.get?.("x-requester-email") || req.headers?.["x-requester-email"] || "").trim();
     const q = String(req.query?.requester || "").trim();
@@ -84,28 +75,51 @@ function getRequesterEmail(req) {
     const v = (h || q || b || "").toLowerCase();
     return /.+@.+\..+/.test(v) ? v : undefined;
 }
-/** ตรวจสอบ Firebase ID Token และคืนข้อมูลผู้ใช้ที่ยืนยันแล้ว (ฝั่งเซิร์ฟเวอร์) */
+function decodePayloadUnsafe(token) {
+    try {
+        if (!token)
+            return;
+        const seg = (token.split(".")[1] || "").replace(/-/g, "+").replace(/_/g, "/");
+        const json = Buffer.from(seg, "base64").toString("utf8");
+        return JSON.parse(json);
+    }
+    catch {
+        return;
+    }
+}
 async function requireFirebaseUser(req) {
     try {
         const authz = String(req.headers?.authorization || "");
         const m = authz.match(/^Bearer\s+(.+)$/i);
-        if (!m)
+        if (!m) {
+            logger.warn("[authz] missing_bearer");
             return { ok: false, status: 401, error: "unauthorized: missing_bearer" };
-        const decoded = await admin.auth().verifyIdToken(m[1], true);
+        }
+        const token = m[1].trim();
+        const pre = decodePayloadUnsafe(token);
+        if (pre?.iss || pre?.aud) {
+            logger.debug("[authz] token_payload", { iss: pre.iss, aud: pre.aud, email: pre.email });
+        }
+        const decoded = await admin.auth().verifyIdToken(token, CHECK_REVOKED);
         const email = (decoded.email || "").toLowerCase();
-        if (!email)
+        if (!email) {
+            logger.warn("[authz] no_email_in_token");
             return { ok: false, status: 401, error: "unauthorized: no_email_in_token" };
-        // ถ้ามี header x-requester-email ต้องตรงกับ email ใน token
+        }
         const hdr = getRequesterEmail(req);
         if (hdr && hdr !== email) {
+            logger.warn("[authz] header_email_mismatch", { hdr, email });
             return { ok: false, status: 403, error: "forbidden: header_email_mismatch" };
         }
-        // โหลดเอกสาร admin
         const doc = await readAdminDoc(email);
-        if (!doc)
+        if (!doc) {
+            logger.warn("[authz] not_admin_doc", { email });
             return { ok: false, status: 403, error: "forbidden: not_admin" };
-        if (doc.enabled === false)
+        }
+        if (doc.enabled === false) {
+            logger.warn("[authz] admin_disabled", { email });
             return { ok: false, status: 403, error: "forbidden: disabled" };
+        }
         return {
             ok: true,
             status: 200,
@@ -116,15 +130,12 @@ async function requireFirebaseUser(req) {
         };
     }
     catch (e) {
-        // หมายเหตุ: โทเค็นหมดอายุ/ไม่ถูกต้อง → 401
-        return { ok: false, status: 401, error: "unauthorized: bad_token" };
+        const code = e?.code || e?.errorInfo?.code || "verify_failed";
+        const msg = e?.message || e?.errorInfo?.message || String(e);
+        logger.error("[authz] verify_failed", { code, msg });
+        return { ok: false, status: 401, error: `unauthorized: ${code}` };
     }
 }
-/**
- * บังคับ RBAC: ต้องมีอย่างน้อยหนึ่งในสิทธิ์ที่ระบุ (หรือเป็น superadmin)
- * ตัวอย่าง anyOfCaps = ["approve","decide","manage_requests"]
- * หมายเหตุ: รองรับทั้ง manage_requests และ manageRequests (compat)
- */
 async function requireCaps(req, anyOfCaps) {
     const who = await requireFirebaseUser(req);
     if (!who.ok)
@@ -132,7 +143,6 @@ async function requireCaps(req, anyOfCaps) {
     const { role, caps } = who;
     if (role === "superadmin")
         return who;
-    // ให้ผ่านเมื่อมีสิทธิ์อย่างน้อยหนึ่งตัวในกลุ่ม "อนุมัติ/ตัดสินใจ/จัดการคำขอ"
     const granted = !!caps.approve ||
         !!caps.decide ||
         !!caps.manageRequests ||
@@ -142,7 +152,6 @@ async function requireCaps(req, anyOfCaps) {
     }
     return who;
 }
-/** เข้ากันได้กับโค้ดเก่า: ต้องมีสิทธิ์ manageUsers หรือเป็น superadmin */
 async function checkCanManageUsers(req) {
     const who = await requireFirebaseUser(req);
     if (!who.ok)
