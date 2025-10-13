@@ -1,0 +1,156 @@
+/* ==========================================================================
+   File: web/src/pages/Landing.module.css
+   Purpose: โทนหรู (Luxury) + Glassmorphism เบาๆ / เคารพ reduced motion
+   Updated: 2025-10-13
+   ========================================================================== */
+
+:root {
+  --bg-1: #0b1020;
+  --bg-2: #101735;
+  --fg:  #f6f8ff;
+  --muted: #c8cbe0;
+
+  --glass: rgba(255,255,255,0.08);
+  --glass-border: rgba(255,255,255,0.12);
+
+  --brand-1: #7aa2ff;
+  --brand-2: #a57aff;
+}
+
+.shell {
+  position: relative;
+  min-height: 100svh;
+  color: var(--fg);
+  background: radial-gradient(1200px 600px at 10% 10%, var(--bg-2), transparent),
+              linear-gradient(180deg, var(--bg-1), #0a0d1b 60%, #0a0d1b);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.bg {
+  position: absolute;
+  inset: -20% -10% -20% -10%;
+  pointer-events: none;
+  filter: blur(36px);
+  opacity: 0.9;
+}
+
+.blobA, .blobB {
+  position: absolute;
+  width: 42vmax;
+  height: 42vmax;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--brand-2), transparent 70%);
+  mix-blend-mode: screen;
+  opacity: 0.25;
+  animation: floatA 16s ease-in-out infinite;
+}
+
+.blobB {
+  background: radial-gradient(closest-side, var(--brand-1), transparent 70%);
+  animation-name: floatB;
+}
+
+@keyframes floatA {
+  0%   { transform: translate(-10%, -8%) scale(1);}
+  50%  { transform: translate(20%, 6%) scale(1.1);}
+  100% { transform: translate(-10%, -8%) scale(1);}
+}
+@keyframes floatB {
+  0%   { transform: translate(55%, 25%) scale(1);}
+  50%  { transform: translate(35%, 35%) scale(0.9);}
+  100% { transform: translate(55%, 25%) scale(1);}
+}
+
+/* เคารพผู้ใช้ที่ตั้งค่า “ลดการเคลื่อนไหว” */
+@media (prefers-reduced-motion: reduce) {
+  .blobA, .blobB { animation: none; }
+}
+
+.card {
+  position: relative;
+  width: min(680px, 92vw);
+  padding: 28px 28px 22px;
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.06));
+  border: 1px solid var(--glass-border);
+  box-shadow:
+    0 20px 60px rgba(0,0,0,0.35),
+    inset 0 1px 0 rgba(255,255,255,0.12);
+  backdrop-filter: blur(10px);
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 18px;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 12px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--glass-border);
+  margin-bottom: 10px;
+}
+
+.title {
+  font-size: clamp(26px, 4.5vw, 36px);
+  margin: 4px 0 6px;
+  font-weight: 700;
+}
+
+.subtitle {
+  color: var(--muted);
+  margin: 0;
+}
+
+.progress {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid var(--glass-border);
+  overflow: hidden;
+  margin: 18px 0 12px;
+}
+
+.bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--brand-1), var(--brand-2));
+  transition: width 120ms linear;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: center;
+}
+
+.primary {
+  appearance: none;
+  border: 0;
+  outline: none;
+  border-radius: 12px;
+  padding: 10px 16px;
+  font-weight: 600;
+  color: #0b1020;
+  background: #ffffff;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+}
+.primary:hover { transform: translateY(-1px); }
+.primary:active { transform: translateY(0); opacity: 0.9; }
+
+.hint {
+  font-size: 12px;
+  color: var(--muted);
+}

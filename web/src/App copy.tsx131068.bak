@@ -1,13 +1,14 @@
 // ======================================================================
 // ไฟล์: src/App.tsx
-// เวอร์ชัน: 2025-10-13 17:00 (Asia/Bangkok)
+// เวอร์ชัน: 2025-09-25 05:20 (Asia/Bangkok)
 // เปลี่ยนแปลงรอบนี้:
-//   • [ใหม่] นำเข้าและผูกหน้า Landing ที่เส้นทาง "/" (สวยๆ + แถบโหลด/ปุ่ม "ไปต่อเลย")
-//   • [เปลี่ยน] เดิม "/" → <Navigate to="/rules">  ตอนนี้ "/" → <Landing />
-//   • [คงเดิม] เส้นทาง /rules, /form, /status, /login, /logout, /auth/action, /test-daily
-//   • [คงเดิม] กลุ่ม /admin ทั้งหมด (RequireAuth + lazy + Suspense)
+//   • [ใหม่] เพิ่มเส้นทาง /auth/action → ใช้หน้า AuthAction (จัดการลิงก์อีเมล Firebase เช่น resetPassword)
+//   • [ใหม่] เพิ่มเส้นทาง /admin/daily-operations → หน้างานประจำวัน
+//   • [ใหม่] เพิ่มเส้นทาง /test-daily → หน้าทดสอบ Daily Operations Service
+//   • คงโครงสร้างเดิมทั้งหมด (Rules, Form, Status, Login, Admin, Approvals ฯลฯ)
 // หมายเหตุ:
-//   • หน้า Landing จะพาไป /rules อัตโนมัติหลังสั้นๆ หรือผู้ใช้กด "ไปต่อเลย" ได้ทันที
+//   • อย่าลืมตั้งค่า Email Action URL ใน Firebase ให้ชี้มาที่โดเมนเรา (เช่น https://imperialworld.asia/auth/action)
+//     เพื่อให้ลิงก์รีเซ็ตรหัสผ่าน/ยืนยันอีเมลเปิดหน้านี้ของเราได้ (อ้างอิงเอกสาร Firebase), ดูในคอนโซล Authentication > Templates.
 // ======================================================================
 
 import React, { useEffect, useState, Suspense, lazy } from "react";
@@ -23,18 +24,16 @@ import RulesPage from "./pages/RulesPage";
 import RequestFormPage from "./pages/RequestFormPage";
 import StatusPage from "./pages/StatusPage";
 
-// ★ ใช้หน้า Login แบบสวย (hero)
+// ★ ใช้หน้า Login แบบสวย (hero) เป็นค่าเริ่มต้นเพียงตัวเดียว
 import Login from "./pages/Login";
+
 import LogoutPage from "./pages/LogoutPage";
 
-// ★★★ ตัวจัดการลิงก์อีเมลของ Firebase (resetPassword/verifyEmail/recoverEmail)
+// ★★★ [ใหม่] หน้าจัดการลิงก์อีเมลของ Firebase (resetPassword/verifyEmail/recoverEmail)
 import AuthAction from "./pages/AuthAction";
 
-// ★★★★ หน้าทดสอบ Daily Operations Service
+// ★★★★ [ใหม่] หน้าทดสอบ Daily Operations Service
 import TestDaily from "./pages/TestDaily";
-
-// ★★★ [ใหม่] หน้า Splash/Loading (พาไป /rules)
-import Landing from "./pages/Landing";
 
 // -------- Admin Layout + Pages --------
 import AdminLayout from "./pages/admin/AdminLayout";
@@ -45,9 +44,15 @@ const Logs          = lazy(() => import("./pages/admin/Logs"));
 const Users         = lazy(() => import("./pages/admin/Users"));
 const Settings      = lazy(() => import("./pages/admin/Settings"));
 const Reports       = lazy(() => import("./pages/admin/Reports"));
+// ด้านบนตรงกลุ่ม lazy imports ของ admin pages
 const Cleanup       = lazy(() => import("./pages/admin/Cleanup"));
+
+// ★★ เพิ่ม Approvals (ใหม่) — โหลดแบบ lazy (เลซี่)
 const Approvals     = lazy(() => import("./pages/admin/Approvals"));
+
+// ★★★ [ใหม่] เพิ่ม DailyOperations — หน้างานประจำวัน
 const DailyOperations = lazy(() => import("./pages/admin/DailyOperations"));
+
 // (ถ้าต้องใช้แดชบอร์ดเก่า ให้คงไว้; ถ้าไม่ใช้สามารถลบทิ้งภายหลังได้)
 const AdminPageLegacy = lazy(() => import("./pages/AdminPage"));
 
@@ -77,7 +82,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
   const loc = useLocation();
-  useEffect(() => onAuthStateChanged(auth, (u) => { setUser(u); setReady(true); }), []);
+  useEffect(() => onAuthStateChanged(auth, u => { setUser(u); setReady(true); }), []);
   if (!ready) return <div className="p-6">กำลังโหลด…</div>;
   if (!user)   return <Navigate to="/login" state={{ from: loc }} replace />;
   return <>{children}</>;
@@ -93,8 +98,8 @@ export default function App() {
     <BrowserRouter>
       <AuthLogger />
       <Routes>
-        {/* เริ่มที่หน้า Splash/Loading */}
-        <Route path="/" element={<Landing />} />
+        {/* เริ่มที่หน้า "กฎ" */}
+        <Route path="/" element={<Navigate to="/rules" replace />} />
 
         {/* -------- Public -------- */}
         <Route path="/rules" element={<RulesPage />} />
@@ -103,10 +108,10 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/logout" element={<LogoutPage />} />
 
-        {/* ตัวจัดการลิงก์อีเมลของ Firebase (เช่น resetPassword) */}
+        {/* ★★★ [ใหม่] ตัวจัดการลิงก์อีเมลของ Firebase (เช่น resetPassword) */}
         <Route path="/auth/action" element={<AuthAction />} />
 
-        {/* หน้าทดสอบ Daily Operations Service */}
+        {/* ★★★★ [ใหม่] หน้าทดสอบ Daily Operations Service */}
         <Route path="/test-daily" element={<TestDaily />} />
 
         {/* -------- Admin legacy (ถ้าไม่ใช้ค่อยลบทีหลัง) -------- */}
@@ -117,23 +122,23 @@ export default function App() {
           {/* index = /admin → Dashboard */}
           <Route index element={<Page><Dashboard /></Page>} />
 
-          {/* เส้นทาง Approvals */}
+          {/* ★★ เส้นทางใหม่ Approvals */}
           <Route path="approvals" element={<Page><Approvals /></Page>} />
 
           <Route path="permits" element={<Page><Permits /></Page>} />
           <Route path="permits/:id" element={<Page><PermitDetails /></Page>} />
           <Route path="logs" element={<Page><Logs /></Page>} />
-
-          {/* เส้นทาง Daily Operations — งานประจำวัน */}
+          
+          {/* ★★★ [ใหม่] เส้นทาง Daily Operations — งานประจำวัน */}
           <Route path="daily-operations" element={<Page><DailyOperations /></Page>} />
-
+          
           <Route path="users" element={<Page><Users /></Page>} />
           <Route path="cleanup" element={<Page><Cleanup /></Page>} />
           <Route path="settings" element={<Page><Settings /></Page>} />
           <Route path="reports" element={<Page><Reports /></Page>} />
         </Route>
 
-        {/* กัน 404 → ส่งกลับไป /rules */}
+        {/* กัน 404 */}
         <Route path="*" element={<Navigate to="/rules" replace />} />
       </Routes>
     </BrowserRouter>
