@@ -1,8 +1,8 @@
 "use strict";
 // ======================================================================
 // File: functions/src/adminUsers.ts (เวอร์ชันสมบูรณ์)
-// เวอร์ชัน: 2025-10-08 (Final Version)
-// แก้ไข: เอา initializeApp() ออก เพราะถูกย้ายไปที่ index.ts แล้ว
+// เวอร์ชัน: 2025-10-12 (แก้ไข: เพิ่ม initializeApp กลับมา)
+// แก้ไข: เพิ่มการเปิด Firebase ในไฟล์นี้เอง (ป้องกัน Error)
 // ======================================================================
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -41,12 +41,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.removeAdmin = exports.updateAdminRole = exports.addAdmin = exports.listadmins = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const logger = __importStar(require("firebase-functions/logger"));
+const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
 const auth_1 = require("firebase-admin/auth");
 const withCors_1 = require("./withCors");
 const authz_1 = require("./authz");
-// App ได้ถูก initialize ที่ไฟล์ index.ts แล้ว
-// เราจึงสามารถเรียกใช้ service ต่างๆ ได้เลย
+// เช็คก่อนว่ามีการเปิด Firebase แล้วหรือยัง (ป้องกันเปิดซ้ำ)
+if (!(0, app_1.getApps)().length)
+    (0, app_1.initializeApp)();
 const db = (0, firestore_1.getFirestore)();
 const auth = (0, auth_1.getAuth)();
 // --- Config ---

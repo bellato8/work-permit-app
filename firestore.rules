@@ -1,14 +1,8 @@
 // ======================================================================
 // File: firestore.rules
-// เวอร์ชัน: 2025-09-18 22:05 (+07)
-// หน้าที่: ขันกฎ "create คำขอ" ที่ /requests ให้ปลอดภัยขึ้น (ต้องมีฟิลด์สำคัญถูกต้อง)
-//          โดยยังเปิด create ที่ซับคอลเลกชันไว้ชั่วคราว (ไม่ล็อกชื่อ) เพื่อไม่ให้เว็บสะดุด
-// เชื่อม auth ผ่าน "อะแดปเตอร์": -
-// หมายเหตุ:
-//   • เปิดเฉพาะ create จาก client; read/update/delete ยังปิดเหมือนเดิม
-//   • ใช้ regex ตรวจ requestId แบบกว้าง ๆ (ตัวอักษร/ตัวเลข/._- ยาว 6–64)
-//   • ขั้นถัดไป (A-2) เราค่อย "ล็อกชื่อซับคอลเลกชัน" และจำกัดจำนวน/ความยาวเพิ่มเติม
-// วันที/เดือน/ปี เวลา
+// เวอร์ชัน: 2025-10-11 (Task 11 Update)
+// หน้าที่: เพิ่ม Security Rules สำหรับ checkIns และ checkOuts collections
+// อัปเดตล่าสุด: เพิ่ม rules สำหรับ Daily Operations (Check-In/Check-Out)
 // ======================================================================
 rules_version = '2';
 service cloud.firestore {
@@ -61,6 +55,34 @@ service cloud.firestore {
     match /requests/{rid}/{anySub=**} {
       allow create: if true; // จะค่อย ๆ เข้มขึ้นในขั้น A-2
       allow read, update, delete: if false;
+    }
+
+    // ===== 🆕 checkIns: บันทึกการเช็คอิน (Task 11) =====
+    match /checkIns/{checkInId} {
+      // อ่านได้ถ้ามีสิทธิ์ viewTodayWork หรือ viewOtherDaysWork
+      allow read: if request.auth != null && 
+        exists(/databases/$(database)/documents/admins/$(request.auth.token.email)) &&
+        (
+          get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.permissions.viewTodayWork == true ||
+          get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.permissions.viewOtherDaysWork == true
+        );
+      
+      // เขียนได้เฉพาะผ่าน Cloud Functions (client ห้ามเขียน)
+      allow write: if false;
+    }
+
+    // ===== 🆕 checkOuts: บันทึกการเช็คเอาท์ (Task 11) =====
+    match /checkOuts/{checkOutId} {
+      // อ่านได้ถ้ามีสิทธิ์ viewTodayWork หรือ viewOtherDaysWork
+      allow read: if request.auth != null && 
+        exists(/databases/$(database)/documents/admins/$(request.auth.token.email)) &&
+        (
+          get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.permissions.viewTodayWork == true ||
+          get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.permissions.viewOtherDaysWork == true
+        );
+      
+      // เขียนได้เฉพาะผ่าน Cloud Functions (client ห้ามเขียน)
+      allow write: if false;
     }
 
     // ===== ปิดทุก path อื่น =====

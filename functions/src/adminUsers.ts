@@ -1,18 +1,20 @@
 // ======================================================================
 // File: functions/src/adminUsers.ts (เวอร์ชันสมบูรณ์)
-// เวอร์ชัน: 2025-10-08 (Final Version)
-// แก้ไข: เอา initializeApp() ออก เพราะถูกย้ายไปที่ index.ts แล้ว
+// เวอร์ชัน: 2025-10-12 (แก้ไข: เพิ่ม initializeApp กลับมา)
+// แก้ไข: เพิ่มการเปิด Firebase ในไฟล์นี้เอง (ป้องกัน Error)
 // ======================================================================
 
 import { onRequest } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
+import { initializeApp, getApps } from "firebase-admin/app";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 import { withCors } from "./withCors";
 import { checkCanManageUsers } from "./authz";
 
-// App ได้ถูก initialize ที่ไฟล์ index.ts แล้ว
-// เราจึงสามารถเรียกใช้ service ต่างๆ ได้เลย
+// เช็คก่อนว่ามีการเปิด Firebase แล้วหรือยัง (ป้องกันเปิดซ้ำ)
+if (!getApps().length) initializeApp();
+
 const db = getFirestore();
 const auth = getAuth();
 

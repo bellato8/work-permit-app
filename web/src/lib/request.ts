@@ -51,9 +51,16 @@ export async function createRequest(data: RequestPayload) {
     requestId,
     status: "PENDING",
     createdAt: serverTimestamp(),
+    
+    // ✨ เพิ่มใหม่ (Task 12): ฟิลด์สำหรับ Daily Work Status
+    dailyStatus: "scheduled",      // "scheduled" | "checked-in" | "checked-out"
+    lastCheckIn: null,              // Timestamp | null - เวลาเช็คอินล่าสุด
+    lastCheckOut: null,             // Timestamp | null - เวลาเช็คเอาท์ล่าสุด
+    
     ...data,
   });
   return requestId;
+}
 }
 
 // ======================================================================

@@ -1,0 +1,16 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": [],
+  "comment": "Updated 2025-10-13: Removed startDate index as we now query only by status and filter by work.from in code"
+}

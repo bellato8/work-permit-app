@@ -1,20 +1,26 @@
 // ======================================================================
 // File: functions/src/index.ts
-// เวอร์ชัน: 2025-10-08 (Final Version)
-// แก้ไข: กลับมา export ทุกฟังก์ชันเหมือนเดิม
+// เวอร์ชัน: 2025-10-13 (Task 16 - เพิ่ม getCalendarView)
+// หน้าที่: Export Cloud Functions (เฉพาะที่มีจริงและทำงานได้)
 // ======================================================================
 
-import { initializeApp, getApps } from "firebase-admin/app";
-
-// --- Centralized Initialization ---
-if (!getApps().length) {
-  initializeApp();
-}
-
-// Export ฟังก์ชันทั้งหมดสำหรับจัดการ Admin
+// ==================== Admin Management (ไฟล์เดิมที่มี) ====================
 export {
   listadmins,
   addAdmin as addadmin,
-  updateAdminRole,
   removeAdmin as removeadmin
 } from "./adminUsers";
+
+export { updateAdminRole } from "./updateAdminRole";
+
+// ==================== Daily Work by Date (Task 13) ====================
+export { getDailyWorkByDate } from "./getDailyWorkByDate";
+
+// ==================== Check-In Management (Task 14) ====================
+export { checkInRequest } from "./checkInRequest";
+
+// ==================== Check-Out Management (Task 15) ====================
+export { checkOutRequest } from "./checkOutRequest";
+
+// ==================== Calendar View (Task 16) ====================
+export { getCalendarView } from "./getCalendarView";

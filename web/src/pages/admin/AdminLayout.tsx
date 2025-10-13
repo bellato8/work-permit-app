@@ -5,6 +5,7 @@
 // การเปลี่ยนแปลงรอบนี้ (Mobile Drawer – Step 3):
 //  - ปิด SwipeableDrawer อัตโนมัติเมื่อเปลี่ยนเส้นทาง (route) หรือสลับเป็นจอ md+
 //  - คง UX/A11y ตามแนวทาง WAI-ARIA & Material; คง safe-area ด้านล่างสำหรับ iOS notch
+//  - [ใหม่] เพิ่มเมนู "งานประจำวัน" (Daily Operations)
 // เชื่อม auth ผ่าน "อะแดปเตอร์": ../../lib/auth และสิทธิ์สด: ../../hooks/useAuthzLive
 // หมายเหตุ: ไม่ตัดฟีเจอร์เดิม (สิทธิ์/เมนู/ปุ่มเดิมทั้งหมดอยู่ครบ)
 // ======================================================================
@@ -34,6 +35,7 @@ import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
+import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
 
 // ---- Auth adapter ----
 import { getCurrentUser, signOut } from "../../lib/auth";
@@ -108,6 +110,10 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/admin/approvals", label: "Approvals", icon: <AssignmentTurnedInRoundedIcon />, anyOfCaps: ["approve_requests", "review_requests"] },
   { to: "/admin/permits",   label: "Permits",   icon: <ArticleRoundedIcon />,          anyOfCaps: ["view_permits", "approve_requests"] },
   { to: "/admin/logs",      label: "Logs",      icon: <HistoryRoundedIcon />,          anyOfCaps: ["view_logs", "manage_settings"] },
+  
+  // ★★★ [ใหม่] เมนูงานประจำวัน (Daily Operations)
+  { to: "/admin/daily-operations", label: "งานประจำวัน", icon: <CalendarTodayIcon />, anyOfCaps: ["viewTodayWork", "view_permits", "approve_requests"] },
+  
   { to: "/admin/users",     label: "Users",     icon: <GroupRoundedIcon />,            anyOfCaps: ["manage_users"] },
   { to: "/admin/reports",   label: "Reports",   icon: <BarChartRoundedIcon />,         anyOfCaps: ["view_reports"] },
   {

@@ -250,6 +250,12 @@ export default function RequestFormPage() {
         },
         status: "รออนุมัติ",
         phoneLast4: last4(data.phone),
+
+        // ✨ เพิ่มใหม่ (Task 12): ฟิลด์สำหรับ Daily Work Status
+        dailyStatus: "scheduled",      // "scheduled" | "checked-in" | "checked-out"
+        lastCheckIn: null,              // Timestamp | null - เวลาเช็คอินล่าสุด
+        lastCheckOut: null,             // Timestamp | null - เวลาเช็คเอาท์ล่าสุด
+
         audit: { createdUa: navigator.userAgent }
       };
 

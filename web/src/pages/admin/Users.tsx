@@ -1,11 +1,10 @@
 // ======================================================================
 // File: web/src/pages/admin/Users.tsx
-// เวอร์ชัน: 2025-10-08  (force-refresh ID token ทุกครั้ง + refresh on mount)
+// เวอร์ชัน: 2025-10-10  (เพิ่ม Daily Work Permissions)
 // หน้าที่: จัดการผู้ใช้แอดมิน (ดู/เพิ่ม/แก้สิทธิ์/ปิดเปิด/ลบ/เชิญ)
-// หมายเหตุ:
-//  - สาเหตุ 401 ที่เจอ: token ไม่ได้รีเฟรชหลังปรับสิทธิ์ → บังคับ getIdToken(true)
-//  - อ้างอิง: Firebase แนะนำให้ force refresh ด้วย currentUser.getIdToken(true)
-//    เมื่อมีการเปลี่ยน custom claims หรือเพิ่ง grant สิทธิ์ใหม่
+// การเปลี่ยนแปลง:
+//  - เพิ่ม DailyWorkCaps type (viewTodayWork, viewOtherDaysWork, checkInOut)
+//  - เพิ่ม UI สำหรับสิทธิ์ Daily Work ใน CapsEditor
 // ======================================================================
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -30,7 +29,7 @@ import { hasCap, isSuperadmin } from "../../lib/hasCap";
 import CapButton from "../../components/CapButton";
 import CapBlock from "../../components/CapBlock";
 
-// 🔐 Firebase init
+// 🔥 Firebase init
 import { getApps, initializeApp } from "firebase/app";
 try {
   if (typeof window !== "undefined" && getApps().length === 0) {
@@ -43,7 +42,7 @@ try {
   }
 } catch {}
 
-// 🔐 Auth
+// 🔥 Auth
 import { getAuth, getIdToken, onAuthStateChanged } from "firebase/auth";
 
 // ---------- Types ----------
@@ -56,7 +55,13 @@ type NewCaps = {
   view_reports?: boolean; audit_log?: boolean; manage_master_data?: boolean;
   system_settings?: boolean; view_all?: boolean;
 };
-type Caps = LegacyCaps & NewCaps;
+// 🆕 Daily Work Permissions
+type DailyWorkCaps = {
+  viewTodayWork?: boolean;      // ดูงานวันนี้
+  viewOtherDaysWork?: boolean;  // ดูงานวันอื่น
+  checkInOut?: boolean;          // เช็คอิน/เช็คเอาท์
+};
+type Caps = LegacyCaps & NewCaps & DailyWorkCaps;
 type AdminRow = {
   email: string;
   role: Role; caps: Caps; enabled?: boolean;
@@ -66,10 +71,40 @@ type AdminRow = {
 
 // ---------- Default caps per role ----------
 const DEFAULT_CAPS_BY_ROLE: Record<Role, Caps> = {
-  superadmin: { view_all: true, manageUsers: true, system_settings: true, view_reports: true, audit_log: true },
-  admin:      { view_all: true, view_reports: true, audit_log: true },
-  approver:   { view_all: false },
-  viewer:     { view_all: false },
+  superadmin: { 
+    view_all: true, 
+    manageUsers: true, 
+    system_settings: true, 
+    view_reports: true, 
+    audit_log: true,
+    // 🆕 สิทธิ์ Daily Work
+    viewTodayWork: true,
+    viewOtherDaysWork: true,
+    checkInOut: true,
+  },
+  admin: { 
+    view_all: true, 
+    view_reports: true, 
+    audit_log: true,
+    // 🆕 สิทธิ์ Daily Work
+    viewTodayWork: true,
+    viewOtherDaysWork: true,
+    checkInOut: true,
+  },
+  approver: { 
+    view_all: false,
+    // 🆕 สิทธิ์ Daily Work (หัวหน้างานดูได้ทุกวัน + เช็คได้)
+    viewTodayWork: true,
+    viewOtherDaysWork: true,
+    checkInOut: true,
+  },
+  viewer: { 
+    view_all: false,
+    // 🆕 สิทธิ์ Daily Work (ผู้ดูแค่วันนี้เท่านั้น)
+    viewTodayWork: true,
+    viewOtherDaysWork: false,
+    checkInOut: false,
+  },
 };
 
 // ---------- Function URLs ----------
@@ -156,6 +191,13 @@ function CapsEditor({
     ["view_all", "ดูทั้งหมด (คีย์ใหม่)", v.view_all ?? (v.viewAll ?? false)],
   ] as const;
 
+  // 🆕 Daily Work Permissions
+  const dailyWork = [
+    ["viewTodayWork", "ดูงานวันนี้", v.viewTodayWork ?? false],
+    ["viewOtherDaysWork", "ดูงานวันอื่น", v.viewOtherDaysWork ?? false],
+    ["checkInOut", "เช็คอิน/เช็คเอาท์", v.checkInOut ?? false],
+  ] as const;
+
   return (
     <Stack direction="row" spacing={4} sx={{ flexWrap: "wrap" }}>
       <Stack>
@@ -174,6 +216,19 @@ function CapsEditor({
         <Typography variant="caption" color="text.secondary">สิทธิ์พิเศษ</Typography>
         <Stack>
           {extra.map(([k, label, checked]) => (
+            <FormControlLabel
+              key={String(k)}
+              control={<Checkbox checked={!!checked} onChange={e => onChange(k as keyof Caps, e.target.checked)} disabled={disabled} />}
+              label={label as string}
+            />
+          ))}
+        </Stack>
+      </Stack>
+      {/* 🆕 Daily Work Section */}
+      <Stack>
+        <Typography variant="caption" color="text.secondary">สิทธิ์งานรายวัน</Typography>
+        <Stack>
+          {dailyWork.map(([k, label, checked]) => (
             <FormControlLabel
               key={String(k)}
               control={<Checkbox checked={!!checked} onChange={e => onChange(k as keyof Caps, e.target.checked)} disabled={disabled} />}

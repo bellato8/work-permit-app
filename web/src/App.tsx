@@ -3,6 +3,8 @@
 // เวอร์ชัน: 2025-09-25 05:20 (Asia/Bangkok)
 // เปลี่ยนแปลงรอบนี้:
 //   • [ใหม่] เพิ่มเส้นทาง /auth/action → ใช้หน้า AuthAction (จัดการลิงก์อีเมล Firebase เช่น resetPassword)
+//   • [ใหม่] เพิ่มเส้นทาง /admin/daily-operations → หน้างานประจำวัน
+//   • [ใหม่] เพิ่มเส้นทาง /test-daily → หน้าทดสอบ Daily Operations Service
 //   • คงโครงสร้างเดิมทั้งหมด (Rules, Form, Status, Login, Admin, Approvals ฯลฯ)
 // หมายเหตุ:
 //   • อย่าลืมตั้งค่า Email Action URL ใน Firebase ให้ชี้มาที่โดเมนเรา (เช่น https://imperialworld.asia/auth/action)
@@ -30,6 +32,9 @@ import LogoutPage from "./pages/LogoutPage";
 // ★★★ [ใหม่] หน้าจัดการลิงก์อีเมลของ Firebase (resetPassword/verifyEmail/recoverEmail)
 import AuthAction from "./pages/AuthAction";
 
+// ★★★★ [ใหม่] หน้าทดสอบ Daily Operations Service
+import TestDaily from "./pages/TestDaily";
+
 // -------- Admin Layout + Pages --------
 import AdminLayout from "./pages/admin/AdminLayout";
 const Dashboard     = lazy(() => import("./pages/admin/Dashboard"));
@@ -44,6 +49,9 @@ const Cleanup       = lazy(() => import("./pages/admin/Cleanup"));
 
 // ★★ เพิ่ม Approvals (ใหม่) — โหลดแบบ lazy (เลซี่)
 const Approvals     = lazy(() => import("./pages/admin/Approvals"));
+
+// ★★★ [ใหม่] เพิ่ม DailyOperations — หน้างานประจำวัน
+const DailyOperations = lazy(() => import("./pages/admin/DailyOperations"));
 
 // (ถ้าต้องใช้แดชบอร์ดเก่า ให้คงไว้; ถ้าไม่ใช้สามารถลบทิ้งภายหลังได้)
 const AdminPageLegacy = lazy(() => import("./pages/AdminPage"));
@@ -61,7 +69,7 @@ const getFirebaseConfig = () => ({
 if (!getApps().length) initializeApp(getFirebaseConfig());
 const auth = getAuth();
 
-// ต้อง “ยอมรับกฎ” ก่อนเข้า /form
+// ต้อง "ยอมรับกฎ" ก่อนเข้า /form
 function RequireAccepted({ children }: { children: React.ReactNode }) {
   const accepted = typeof window !== "undefined" && localStorage.getItem("rulesAccepted") === "true";
   const loc = useLocation();
@@ -90,7 +98,7 @@ export default function App() {
     <BrowserRouter>
       <AuthLogger />
       <Routes>
-        {/* เริ่มที่หน้า “กฎ” */}
+        {/* เริ่มที่หน้า "กฎ" */}
         <Route path="/" element={<Navigate to="/rules" replace />} />
 
         {/* -------- Public -------- */}
@@ -102,6 +110,9 @@ export default function App() {
 
         {/* ★★★ [ใหม่] ตัวจัดการลิงก์อีเมลของ Firebase (เช่น resetPassword) */}
         <Route path="/auth/action" element={<AuthAction />} />
+
+        {/* ★★★★ [ใหม่] หน้าทดสอบ Daily Operations Service */}
+        <Route path="/test-daily" element={<TestDaily />} />
 
         {/* -------- Admin legacy (ถ้าไม่ใช้ค่อยลบทีหลัง) -------- */}
         <Route path="/admin-legacy" element={<Page><AdminPageLegacy /></Page>} />
@@ -117,6 +128,10 @@ export default function App() {
           <Route path="permits" element={<Page><Permits /></Page>} />
           <Route path="permits/:id" element={<Page><PermitDetails /></Page>} />
           <Route path="logs" element={<Page><Logs /></Page>} />
+          
+          {/* ★★★ [ใหม่] เส้นทาง Daily Operations — งานประจำวัน */}
+          <Route path="daily-operations" element={<Page><DailyOperations /></Page>} />
+          
           <Route path="users" element={<Page><Users /></Page>} />
           <Route path="cleanup" element={<Page><Cleanup /></Page>} />
           <Route path="settings" element={<Page><Settings /></Page>} />
