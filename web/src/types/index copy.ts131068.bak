@@ -6,7 +6,7 @@
 
 // ========== Admin & User Types ==========
 
-export type AdminRole =
+export type AdminRole = 
   | "superadmin"
   | "approver"
   | "viewer"
@@ -17,26 +17,26 @@ export interface AdminCapabilities {
   // Dashboard & Reports
   view_dashboard?: boolean;
   view_reports?: boolean;
-
+  
   // Approval & Review
   approve_requests?: boolean;
   review_requests?: boolean;
-
+  
   // Permits & Logs
   view_permits?: boolean;
   view_logs?: boolean;
-
+  
   // User Management
   manage_users?: boolean;
-
+  
   // Settings & System
   manage_settings?: boolean;
-
+  
   // ★ NEW: Daily Work Capabilities (จาก Task 01-03)
   viewTodayWork?: boolean;      // ดูงานวันนี้
   viewOtherDaysWork?: boolean;  // ดูงานวันอื่น
   checkInOut?: boolean;         // เช็คอิน/เช็คเอาท์
-
+  
   // Special Permission
   superadmin?: boolean;
 }
@@ -54,9 +54,9 @@ export interface AdminUser {
 
 // ========== Work Permit Types ==========
 
-export type PermitStatus =
+export type PermitStatus = 
   | "pending"
-  | "approved"
+  | "approved" 
   | "rejected"
   | "completed"
   | "cancelled";
@@ -78,7 +78,7 @@ export interface WorkPermitRequest {
   endTime: string;                // เวลาสิ้นสุด (e.g., "17:00")
   workDate: string;               // วันที่ทำงาน (ISO format)
   status: PermitStatus;           // สถานะใบอนุญาต
-
+  
   // Additional fields
   description?: string;
   hazards?: string[];
@@ -86,7 +86,7 @@ export interface WorkPermitRequest {
   approvedBy?: string;
   approvedAt?: string;
   rejectedReason?: string;
-
+  
   // Timestamps
   createdAt: string;
   updatedAt: string;
@@ -94,7 +94,7 @@ export interface WorkPermitRequest {
 
 // ========== Daily Work Types (จาก Task 05-09) ==========
 
-export type DailyStatus =
+export type DailyStatus = 
   | "scheduled"    // 🟠 จะเข้า (ยังไม่เช็คอิน)
   | "checked-in"   // 🟢 เข้าแล้ว (เช็คอินแล้ว รอเช็คเอาท์)
   | "checked-out"; // 🔵 ออกแล้ว (เช็คเอาท์แล้ว)
@@ -102,17 +102,17 @@ export type DailyStatus =
 export interface DailyWorkItem extends WorkPermitRequest {
   // ★ เพิ่มฟิลด์สำหรับ Daily Operations
   dailyStatus: DailyStatus;
-
+  
   // Check-in data
   checkedInAt?: string;          // เวลาเช็คอิน (ISO format)
   checkedInBy?: string;          // UID ของผู้เช็คอิน
   checkInNotes?: string;         // หมายเหตุตอนเช็คอิน
-
+  
   // Check-out data
   checkedOutAt?: string;         // เวลาเช็คเอาท์ (ISO format)
   checkedOutBy?: string;         // UID ของผู้เช็คเอาท์
   checkOutNotes?: string;        // หมายเหตุตอนเช็คเอาท์
-
+  
   // Worker count (optional)
   expectedWorkers?: number;
   actualWorkers?: number;
@@ -182,4 +182,24 @@ export type Timestamp = string; // ISO 8601 format
 export type DateString = string; // "YYYY-MM-DD" format
 export type TimeString = string; // "HH:mm" format (24-hour)
 
-// (ลบบล็อค export type { ... } ที่ซ้ำออกทั้งหมด เพื่อหลีกเลี่ยง TS2484)
+// ========== Export All ==========
+export type {
+  AdminRole,
+  AdminCapabilities,
+  AdminUser,
+  PermitStatus,
+  PermitType,
+  WorkPermitRequest,
+  DailyStatus,
+  DailyWorkItem,
+  CalendarDayData,
+  CalendarViewResponse,
+  ApiResponse,
+  PaginatedResponse,
+  AuthState,
+  LoginCredentials,
+  SystemLog,
+  Timestamp,
+  DateString,
+  TimeString,
+};

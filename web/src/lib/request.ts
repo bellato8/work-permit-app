@@ -61,7 +61,6 @@ export async function createRequest(data: RequestPayload) {
   });
   return requestId;
 }
-}
 
 // ======================================================================
 // ส่วนเพิ่มใหม่: ตัวช่วยยิง HTTP พร้อมแนบโทเคน (ใช้ซ้ำได้ทั้งโปรเจกต์)

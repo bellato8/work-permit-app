@@ -1,7 +1,8 @@
 // ======================================================================
 // File: functions/src/checkOutRequest.ts
-// เวอร์ชัน: 2025-10-13 (Task 15)
+// เวอร์ชัน: 2025-10-13 (Task 15) - แก้ไข Bug เช็คสถานะ
 // หน้าที่: Cloud Function สำหรับบันทึกการเช็คเอาท์ + อัปเดตสถานะงาน
+// แก้ไข: รองรับ status ทั้งภาษาไทย "อนุมัติ" และอังกฤษ "approved"
 // ======================================================================
 
 import { onRequest } from "firebase-functions/v2/https";
@@ -121,8 +122,8 @@ export const checkOutRequest = onRequest(
 
       const requestData = requestDoc.data()!;
 
-      // เช็คว่าได้รับอนุมัติแล้วหรือยัง
-      if (requestData.status !== "อนุมัติ") {
+      // ✅ แก้ไข: เช็คว่าได้รับอนุมัติแล้วหรือยัง (รองรับทั้งภาษาไทยและอังกฤษ)
+      if (requestData.status !== "อนุมัติ" && requestData.status !== "approved") {
         res.status(400).json({ 
           ok: false, 
           error: "not_approved",

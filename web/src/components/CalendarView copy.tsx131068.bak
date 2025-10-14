@@ -7,21 +7,19 @@
 //  - ✅ แก้การแปลง month: JS (0-11) → API (1-12)
 //  - ✅ เพิ่ม Retry button เมื่อ error
 //  - ✅ รักษารูปแบบ UI เดิมทั้งหมด
-//  - ✅ ใช้ GridLegacy (alias เป็น Grid) เพื่อให้โค้ดเดิม build ผ่าน โดยไม่แตะโครงหน้าจอ
 // ======================================================================
 
 import { useState, useEffect, useMemo } from "react";
-import {
-  Box,
-  Paper,
-  Typography,
+import { 
+  Box, 
+  Paper, 
+  Typography, 
   IconButton,
+  Grid,
   Chip,
   CircularProgress,
   Alert,
-  Button,
-  // ใช้ GridLegacy แต่ alias เป็น Grid เพื่อให้ JSX เดิมใช้ต่อได้
-  GridLegacy as Grid,
+  Button
 } from "@mui/material";
 import ArrowBackIosNewIcon from "@mui/icons-material/ArrowBackIosNew";
 import ArrowForwardIosIcon from "@mui/icons-material/ArrowForwardIos";
@@ -30,15 +28,17 @@ import type { CalendarViewProps } from "../types/dailywork.types";
 import type { CalendarDayData } from "../types/index";
 import { getCalendarView } from "../services/dailyOperationsService";
 
-// 0 = อาทิตย์ขึ้นก่อน, 1 = จันทร์ขึ้นก่อน
+// 0 = อาทิตย์ขึ้นก่อน, 1 = จันทร์ขึ้นก่อน  (ตอนนี้ UI หัวคอลัมน์เป็น "อา จ อ พ พฤ ศ ส" จึงตั้ง 0)
 const WEEK_STARTS_ON: 0 | 1 = 0;
 
+// หัวตารางวันแบบยืดหยุ่น
 const DAY_NAMES_SUN_FIRST = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"] as const;
 const DAY_NAMES_MON_FIRST = ["จ", "อ", "พ", "พฤ", "ศ", "ส", "อา"] as const;
 
+// helper: pad 2 หลัก
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
-// คืน "YYYY-MM-DD" ด้วยเวลาท้องถิ่น
+// helper: คืน "YYYY-MM-DD" ด้วยเวลาท้องถิ่น (หลีกเลี่ยง toISOString ซึ่งเป็น UTC เสมอ)
 function ymdLocal(y: number, mZeroBase: number, d: number) {
   return `${y}-${pad2(mZeroBase + 1)}-${pad2(d)}`;
 }
@@ -68,10 +68,15 @@ export default function CalendarView({ onDateClick }: CalendarViewProps) {
   async function loadCalendarData() {
     setLoading(true);
     setError(null);
-
+    
     try {
-      const apiMonth = month + 1; // JS 0-11 → API 1-12
+      // ✅ แปลง JavaScript month (0-11) เป็น API month (1-12)
+      const apiMonth = month + 1;
+      
+      // ✅ เรียก API จริง
       const result = await getCalendarView(year, apiMonth);
+      
+      // ตั้งค่าข้อมูล
       setDaysData(result.days);
     } catch (e: any) {
       setError(e?.message || "โหลดข้อมูลไม่สำเร็จ");
@@ -86,13 +91,17 @@ export default function CalendarView({ onDateClick }: CalendarViewProps) {
   const handlePrevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
   const handleNextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
 
-  // ========== สร้างกริดของเดือน ==========
-  const firstDayRaw = new Date(year, month, 1).getDay(); // 0=อา..6=ส (ตามเวลาท้องถิ่น) :contentReference[oaicite:4]{index=4}
+  // ========== Calendar grid algorithm (ยืดหยุ่นวันเริ่มสัปดาห์) ==========
+  // JS getDay(): 0=อาทิตย์..6=เสาร์ (ตาม local time)
+  const firstDayRaw = new Date(year, month, 1).getDay();
+  // ปรับ offset ให้ตรงกับหัวคอลัมน์ตาม WEEK_STARTS_ON
+  // ถ้าเริ่มจันทร์: Monday-first index = (raw + 6) % 7
   const firstDayIndex =
     WEEK_STARTS_ON === 0 ? firstDayRaw : (firstDayRaw + 6) % 7;
 
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
+  // สร้างตารางทีละสัปดาห์
   const weeks: (number | null)[][] = [];
   let currentWeek: (number | null)[] = new Array(firstDayIndex).fill(null);
 
@@ -108,6 +117,7 @@ export default function CalendarView({ onDateClick }: CalendarViewProps) {
     weeks.push(currentWeek);
   }
 
+  // ========== Data lookup ==========
   const getDataForDate = (day: number): CalendarDayData | null => {
     const dateStr = ymdLocal(year, month, day); // local YYYY-MM-DD
     return daysData.find((d) => d.date === dateStr) || null;
@@ -120,12 +130,16 @@ export default function CalendarView({ onDateClick }: CalendarViewProps) {
       </Box>
     );
   }
-
+  
   if (error) {
     return (
       <Alert severity="error" sx={{ mb: 2 }}>
         {error}
-        <Button size="small" onClick={loadCalendarData} sx={{ ml: 2 }}>
+        <Button 
+          size="small" 
+          onClick={loadCalendarData} 
+          sx={{ ml: 2 }}
+        >
           ลองอีกครั้ง
         </Button>
       </Alert>
@@ -242,21 +256,21 @@ export default function CalendarView({ onDateClick }: CalendarViewProps) {
                         />
                         <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
                           {data.scheduled > 0 && (
-                            <Box
-                              sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: "#ff9800" }}
-                              title={`จะเข้า ${data.scheduled} งาน`}
+                            <Box 
+                              sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: "#ff9800" }} 
+                              title={`จะเข้า ${data.scheduled} งาน`} 
                             />
                           )}
                           {data.checkedIn > 0 && (
-                            <Box
-                              sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: "#4caf50" }}
-                              title={`เข้าแล้ว ${data.checkedIn} งาน`}
+                            <Box 
+                              sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: "#4caf50" }} 
+                              title={`เข้าแล้ว ${data.checkedIn} งาน`} 
                             />
                           )}
                           {data.checkedOut > 0 && (
-                            <Box
-                              sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: "#2196f3" }}
-                              title={`ออกแล้ว ${data.checkedOut} งาน`}
+                            <Box 
+                              sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: "#2196f3" }} 
+                              title={`ออกแล้ว ${data.checkedOut} งาน`} 
                             />
                           )}
                         </Box>
