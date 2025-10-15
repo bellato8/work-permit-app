@@ -1,8 +1,8 @@
 "use strict";
 // ======================================================================
-// File: functions/src/adminUsers.ts (เวอร์ชันสมบูรณ์)
-// เวอร์ชัน: 2025-10-12 (แก้ไข: เพิ่ม initializeApp กลับมา)
-// แก้ไข: เพิ่มการเปิด Firebase ในไฟล์นี้เอง (ป้องกัน Error)
+// File: functions/src/adminUsers.ts (ปรับปรุงให้ listadmins ส่ง pagePermissions)
+// เวอร์ชัน: 2025-10-15
+// เปลี่ยนแปลง: เพิ่มการแนบคีย์ pagePermissions ในผลลัพธ์ listadmins
 // ======================================================================
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -151,6 +151,7 @@ function errToString(e) {
 }
 // ======================================================================
 // 1) listadmins (GET/POST)
+//    ✅ เพิ่ม pagePermissions แนบไปกับแต่ละ item
 // ======================================================================
 exports.listadmins = (0, https_1.onRequest)({ region: REGION }, (0, withCors_1.withCors)(async (req, res) => {
     try {
@@ -176,6 +177,12 @@ exports.listadmins = (0, https_1.onRequest)({ region: REGION }, (0, withCors_1.w
                 lastLoginAt: data.lastLoginAt || null,
                 createdAt: data.createdAt || null,
                 updatedAt: data.updatedAt || null,
+                // -------------------------------
+                // ✅ ส่ง pagePermissions มาด้วย
+                // ถ้าในเอกสารยังไม่มี ให้เป็น null เพื่อให้ฝั่งหน้าเว็บจัดการต่อได้
+                // หมายเหตุ: Firestore รองรับการเก็บข้อมูลซ้อนเป็น map อยู่แล้ว
+                // -------------------------------
+                pagePermissions: data.pagePermissions ?? null,
             };
         });
         ok(res, { items });

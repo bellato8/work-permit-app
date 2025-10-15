@@ -8,9 +8,13 @@
     "recharts": "^3.2.1"
   },
   "devDependencies": {
+    "@types/node": "^24.7.2",
     "@types/qrcode": "^1.5.5",
     "@vitejs/plugin-legacy": "^7.2.1",
     "core-js": "^3.45.1",
-    "regenerator-runtime": "^0.14.1"
+    "firebase-admin": "^13.5.0",
+    "regenerator-runtime": "^0.14.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
   }
 }

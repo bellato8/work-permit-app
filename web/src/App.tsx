@@ -1,13 +1,12 @@
 // ======================================================================
 // ไฟล์: src/App.tsx
-// เวอร์ชัน: 2025-10-13 17:00 (Asia/Bangkok)
+// เวอร์ชัน: 2025-10-14 20:25 (Asia/Bangkok)
 // เปลี่ยนแปลงรอบนี้:
-//   • [ใหม่] นำเข้าและผูกหน้า Landing ที่เส้นทาง "/" (สวยๆ + แถบโหลด/ปุ่ม "ไปต่อเลย")
-//   • [เปลี่ยน] เดิม "/" → <Navigate to="/rules">  ตอนนี้ "/" → <Landing />
-//   • [คงเดิม] เส้นทาง /rules, /form, /status, /login, /logout, /auth/action, /test-daily
-//   • [คงเดิม] กลุ่ม /admin ทั้งหมด (RequireAuth + lazy + Suspense)
-// หมายเหตุ:
-//   • หน้า Landing จะพาไป /rules อัตโนมัติหลังสั้นๆ หรือผู้ใช้กด "ไปต่อเลย" ได้ทันที
+//   • [ใหม่] ใส่ ErrorBoundary กัน "หน้าขาว" จาก runtime error (เช่น lazy import พัง)
+//   • [ปรับ] ห่อทุกหน้า lazy ด้วย <Page>(<Suspense/>) ให้มี fallback ชัดเจน
+//   • [ปรับ] onAuthStateChanged มี cleanup ถูกต้อง (กัน memory leak)
+//   • [คงเดิม] เส้นทาง Public/Admin ทั้งหมด + test routes: /__test__/admin-perms, /__test__/permission-editor, /__test__/checkbox-group
+// หมายเหตุ: หาก test pages ไม่มีไฟล์จริง จะเห็นข้อความชัดเจนแทนการหน้าขาว
 // ======================================================================
 
 import React, { useEffect, useState, Suspense, lazy } from "react";
@@ -23,35 +22,61 @@ import RulesPage from "./pages/RulesPage";
 import RequestFormPage from "./pages/RequestFormPage";
 import StatusPage from "./pages/StatusPage";
 
-// ★ ใช้หน้า Login แบบสวย (hero)
+// ★ หน้า Login/Logout
 import Login from "./pages/Login";
 import LogoutPage from "./pages/LogoutPage";
 
-// ★★★ ตัวจัดการลิงก์อีเมลของ Firebase (resetPassword/verifyEmail/recoverEmail)
+// ★ ตัวจัดการลิงก์อีเมลของ Firebase
 import AuthAction from "./pages/AuthAction";
 
-// ★★★★ หน้าทดสอบ Daily Operations Service
+// ★ หน้าทดสอบ Daily Operations Service
 import TestDaily from "./pages/TestDaily";
 
-// ★★★ [ใหม่] หน้า Splash/Loading (พาไป /rules)
+// ★ หน้า Splash/Loading (พาไป /rules หรือมีปุ่มไปต่อ)
 import Landing from "./pages/Landing";
 
-// -------- Admin Layout + Pages --------
+// -------- Admin Layout + Pages (lazy) --------
 import AdminLayout from "./pages/admin/AdminLayout";
-const Dashboard     = lazy(() => import("./pages/admin/Dashboard"));
-const Permits       = lazy(() => import("./pages/admin/Permits"));
-const PermitDetails = lazy(() => import("./pages/admin/PermitDetails"));
-const Logs          = lazy(() => import("./pages/admin/Logs"));
-const Users         = lazy(() => import("./pages/admin/Users"));
-const Settings      = lazy(() => import("./pages/admin/Settings"));
-const Reports       = lazy(() => import("./pages/admin/Reports"));
-const Cleanup       = lazy(() => import("./pages/admin/Cleanup"));
-const Approvals     = lazy(() => import("./pages/admin/Approvals"));
-const DailyOperations = lazy(() => import("./pages/admin/DailyOperations"));
-// (ถ้าต้องใช้แดชบอร์ดเก่า ให้คงไว้; ถ้าไม่ใช้สามารถลบทิ้งภายหลังได้)
-const AdminPageLegacy = lazy(() => import("./pages/AdminPage"));
 
-// ตั้งค่า Firebase จาก .env
+// helper: lazy แบบมีข้อความตกหล่นกรณีไฟล์หาย/โหลดพลาด (กันหน้าขาว)
+function safeLazy<T extends React.ComponentType<any>>(
+  loader: () => Promise<{ default: T }>,
+  name: string
+) {
+  return lazy(async () => {
+    try {
+      return await loader();
+    } catch (e) {
+      console.error(`❌ Failed to load page: ${name}`, e);
+      const Fallback = (() => (
+        <div style={{ padding: 24 }}>
+          ไม่พบหน้า/โหลดหน้าไม่สำเร็จ: <b>{name}</b>
+        </div>
+      )) as unknown as T;
+      return { default: Fallback };
+    }
+  });
+}
+
+const Dashboard       = safeLazy(() => import("./pages/admin/Dashboard"), "Dashboard");
+const Permits         = safeLazy(() => import("./pages/admin/Permits"), "Permits");
+const PermitDetails   = safeLazy(() => import("./pages/admin/PermitDetails"), "PermitDetails");
+const Logs            = safeLazy(() => import("./pages/admin/Logs"), "Logs");
+const Users           = safeLazy(() => import("./pages/admin/Users"), "Users");
+const Settings        = safeLazy(() => import("./pages/admin/Settings"), "Settings");
+const Reports         = safeLazy(() => import("./pages/admin/Reports"), "Reports");
+const Cleanup         = safeLazy(() => import("./pages/admin/Cleanup"), "Cleanup");
+const Approvals       = safeLazy(() => import("./pages/admin/Approvals"), "Approvals");
+const DailyOperations = safeLazy(() => import("./pages/admin/DailyOperations"), "DailyOperations");
+// (ถ้ายังใช้แดชบอร์ดเก่า)
+const AdminPageLegacy = safeLazy(() => import("./pages/AdminPage"), "AdminPageLegacy");
+
+// -------- Test Pages --------
+const TestCheckboxGroup   = safeLazy(() => import("./pages/__test__/TestCheckboxGroup"), "TestCheckboxGroup");
+const TestPermissionEditor = safeLazy(() => import("./pages/__test__/TestPermissionEditor"), "TestPermissionEditor");
+const TestHook             = safeLazy(() => import("./pages/__test__/TestHook"), "TestHook");
+
+// ตั้งค่า Firebase จาก .env (Vite: import.meta.env.VITE_*)
 const getFirebaseConfig = () => ({
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY ?? "",
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN ?? "",
@@ -63,6 +88,31 @@ const getFirebaseConfig = () => ({
 });
 if (!getApps().length) initializeApp(getFirebaseConfig());
 const auth = getAuth();
+
+// ---------- ErrorBoundary กันหน้าขาว ----------
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; msg?: string }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError(err: any) {
+    return { hasError: true, msg: err?.message || "เกิดข้อผิดพลาด" };
+  }
+  componentDidCatch(err: any, info: any) {
+    console.error("App ErrorBoundary:", err, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 24 }}>
+          <h3>เกิดข้อผิดพลาดในการแสดงผล</h3>
+          <div style={{ color: "#b00020" }}>{this.state.msg}</div>
+        </div>
+      );
+    }
+    return this.props.children as any;
+  }
+}
 
 // ต้อง "ยอมรับกฎ" ก่อนเข้า /form
 function RequireAccepted({ children }: { children: React.ReactNode }) {
@@ -77,7 +127,15 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
   const loc = useLocation();
-  useEffect(() => onAuthStateChanged(auth, (u) => { setUser(u); setReady(true); }), []);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setReady(true);
+    });
+    return () => unsub(); // cleanup
+  }, []);
+
   if (!ready) return <div className="p-6">กำลังโหลด…</div>;
   if (!user)   return <Navigate to="/login" state={{ from: loc }} replace />;
   return <>{children}</>;
@@ -92,50 +150,71 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthLogger />
-      <Routes>
-        {/* เริ่มที่หน้า Splash/Loading */}
-        <Route path="/" element={<Landing />} />
+      <ErrorBoundary>
+        <Routes>
+          {/* เริ่มที่หน้า Splash/Loading */}
+          <Route path="/" element={<Landing />} />
 
-        {/* -------- Public -------- */}
-        <Route path="/rules" element={<RulesPage />} />
-        <Route path="/form" element={<RequireAccepted><RequestFormPage /></RequireAccepted>} />
-        <Route path="/status" element={<StatusPage />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/logout" element={<LogoutPage />} />
+          {/* -------- Public -------- */}
+          <Route path="/rules" element={<RulesPage />} />
+          <Route
+            path="/form"
+            element={
+              <RequireAccepted>
+                <RequestFormPage />
+              </RequireAccepted>
+            }
+          />
+          <Route path="/status" element={<StatusPage />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/logout" element={<LogoutPage />} />
 
-        {/* ตัวจัดการลิงก์อีเมลของ Firebase (เช่น resetPassword) */}
-        <Route path="/auth/action" element={<AuthAction />} />
+          {/* ตัวจัดการลิงก์อีเมลของ Firebase */}
+          <Route path="/auth/action" element={<AuthAction />} />
 
-        {/* หน้าทดสอบ Daily Operations Service */}
-        <Route path="/test-daily" element={<TestDaily />} />
+          {/* หน้าทดสอบ Daily Operations Service */}
+          <Route path="/test-daily" element={<TestDaily />} />
 
-        {/* -------- Admin legacy (ถ้าไม่ใช้ค่อยลบทีหลัง) -------- */}
-        <Route path="/admin-legacy" element={<Page><AdminPageLegacy /></Page>} />
+          {/* -------- Test routes (dev only ก็ใช้ได้จริง; ถ้าไฟล์หายจะขึ้นข้อความแทน) -------- */}
+          <Route path="/__test__/checkbox-group" element={<Page><TestCheckboxGroup /></Page>} />
+          <Route path="/__test__/permission-editor" element={<Page><TestPermissionEditor /></Page>} />
+          <Route path="/__test__/admin-perms" element={<Page><TestHook /></Page>} />
 
-        {/* -------- Admin ใหม่ (มี Sidebar/Topbar) -------- */}
-        <Route path="/admin" element={<RequireAuth><AdminLayout /></RequireAuth>}>
-          {/* index = /admin → Dashboard */}
-          <Route index element={<Page><Dashboard /></Page>} />
+          {/* -------- Admin legacy (ถ้าไม่ใช้ค่อยลบทีหลัง) -------- */}
+          <Route path="/admin-legacy" element={<Page><AdminPageLegacy /></Page>} />
 
-          {/* เส้นทาง Approvals */}
-          <Route path="approvals" element={<Page><Approvals /></Page>} />
+          {/* -------- Admin ใหม่ (มี Sidebar/Topbar) -------- */}
+          <Route
+            path="/admin"
+            element={
+              <RequireAuth>
+                <AdminLayout />
+              </RequireAuth>
+            }
+          >
+            {/* index = /admin → Dashboard */}
+            <Route index element={<Page><Dashboard /></Page>} />
 
-          <Route path="permits" element={<Page><Permits /></Page>} />
-          <Route path="permits/:id" element={<Page><PermitDetails /></Page>} />
-          <Route path="logs" element={<Page><Logs /></Page>} />
+            {/* เส้นทาง Approvals */}
+            <Route path="approvals" element={<Page><Approvals /></Page>} />
 
-          {/* เส้นทาง Daily Operations — งานประจำวัน */}
-          <Route path="daily-operations" element={<Page><DailyOperations /></Page>} />
+            <Route path="permits" element={<Page><Permits /></Page>} />
+            <Route path="permits/:id" element={<Page><PermitDetails /></Page>} />
+            <Route path="logs" element={<Page><Logs /></Page>} />
 
-          <Route path="users" element={<Page><Users /></Page>} />
-          <Route path="cleanup" element={<Page><Cleanup /></Page>} />
-          <Route path="settings" element={<Page><Settings /></Page>} />
-          <Route path="reports" element={<Page><Reports /></Page>} />
-        </Route>
+            {/* งานประจำวัน */}
+            <Route path="daily-operations" element={<Page><DailyOperations /></Page>} />
 
-        {/* กัน 404 → ส่งกลับไป /rules */}
-        <Route path="*" element={<Navigate to="/rules" replace />} />
-      </Routes>
+            <Route path="users" element={<Page><Users /></Page>} />
+            <Route path="cleanup" element={<Page><Cleanup /></Page>} />
+            <Route path="settings" element={<Page><Settings /></Page>} />
+            <Route path="reports" element={<Page><Reports /></Page>} />
+          </Route>
+
+          {/* กัน 404 → ส่งกลับไป /rules */}
+          <Route path="*" element={<Navigate to="/rules" replace />} />
+        </Routes>
+      </ErrorBoundary>
     </BrowserRouter>
   );
 }

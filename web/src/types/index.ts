@@ -1,19 +1,24 @@
 // ======================================================================
 // File: web/src/types/index.ts
-// Purpose: Type Definitions สำหรับ Daily Work Management System
-// Created: 2025-10-11 (Task 10: Integration Testing)
+// Purpose: ศูนย์รวม Type ของฝั่งเว็บ + รองรับโครง "สิทธิ์แบบละเอียด (Granular Permissions)"
+// Created: 2025-10-11
+// Updated: 2025-10-14 (Task 3: export permissions + รองรับ pagePermissions ทั้งที่ AdminCapabilities และ AdminUser)
+// Notes:
+//   - เปิด re-export จาก './permissions' เพื่อให้ import ชนิดสิทธิ์ใหม่ได้จากจุดเดียว
+//   - คงช่อง legacy เดิมทั้งหมดเพื่อไม่ให้โค้ดเก่าพัง (จะค่อยๆ migrate ภายหลัง)
 // ======================================================================
+
+export * from "./permissions"; // re-export ชนิดสิทธิ์แบบละเอียด (barrel)
+import type { AdminRole, PagePermissions } from "./permissions";
 
 // ========== Admin & User Types ==========
 
-export type AdminRole =
-  | "superadmin"
-  | "approver"
-  | "viewer"
-  | "operator"
-  | string;
-
+/**
+ * (LEGACY) ความสามารถแบบเดิมที่รวมๆ เป็นก้อนเดียว
+ * เก็บไว้เพื่อ backward compatibility ระหว่างย้ายไปใช้ pagePermissions เต็มรูปแบบ
+ */
 export interface AdminCapabilities {
+  // ---------------- Legacy (เดิม) ----------------
   // Dashboard & Reports
   view_dashboard?: boolean;
   view_reports?: boolean;
@@ -32,21 +37,36 @@ export interface AdminCapabilities {
   // Settings & System
   manage_settings?: boolean;
 
-  // ★ NEW: Daily Work Capabilities (จาก Task 01-03)
+  // Daily Work (ของเดิม)
   viewTodayWork?: boolean;      // ดูงานวันนี้
   viewOtherDaysWork?: boolean;  // ดูงานวันอื่น
   checkInOut?: boolean;         // เช็คอิน/เช็คเอาท์
 
-  // Special Permission
+  // Special
   superadmin?: boolean;
+
+  // ---------------- New (Granular) ----------------
+  /**
+   * ✨ สิทธิ์แบบละเอียดสำหรับแต่ละหน้า (ใหม่)
+   * จะค่อยๆ แทนที่ legacy capabilities ในอนาคต
+   */
+  pagePermissions?: PagePermissions;
 }
 
+/**
+ * ผู้ดูแลระบบ (ช่วงเปลี่ยนผ่าน)
+ * - role: ใช้จากโครงใหม่ (AdminRole)
+ * - pagePermissions: โครงสิทธิ์แบบละเอียด (ใหม่)
+ * - caps: สิทธิ์รวมแบบเดิม (legacy)
+ */
 export interface AdminUser {
   uid: string;
   email: string;
   displayName?: string;
   role: AdminRole;
-  caps: AdminCapabilities;
+  enabled?: boolean;
+  pagePermissions?: PagePermissions; // ✅ ของใหม่
+  caps?: AdminCapabilities;          // ♻️ ของเดิม (ยังรองรับ)
   createdAt?: string;
   updatedAt?: string;
   invitedBy?: string;
@@ -76,7 +96,7 @@ export interface WorkPermitRequest {
   area: string;                   // พื้นที่ทำงาน (e.g., "F1 / T0101")
   startTime: string;              // เวลาเริ่ม (e.g., "08:00")
   endTime: string;                // เวลาสิ้นสุด (e.g., "17:00")
-  workDate: string;               // วันที่ทำงาน (ISO format)
+  workDate: string;               // วันที่ทำงาน (ISO)
   status: PermitStatus;           // สถานะใบอนุญาต
 
   // Additional fields
@@ -92,7 +112,7 @@ export interface WorkPermitRequest {
   updatedAt: string;
 }
 
-// ========== Daily Work Types (จาก Task 05-09) ==========
+// ========== Daily Work Types ==========
 
 export type DailyStatus =
   | "scheduled"    // 🟠 จะเข้า (ยังไม่เช็คอิน)
@@ -100,16 +120,16 @@ export type DailyStatus =
   | "checked-out"; // 🔵 ออกแล้ว (เช็คเอาท์แล้ว)
 
 export interface DailyWorkItem extends WorkPermitRequest {
-  // ★ เพิ่มฟิลด์สำหรับ Daily Operations
+  // สำหรับ Daily Operations
   dailyStatus: DailyStatus;
 
   // Check-in data
-  checkedInAt?: string;          // เวลาเช็คอิน (ISO format)
+  checkedInAt?: string;          // เวลาเช็คอิน (ISO)
   checkedInBy?: string;          // UID ของผู้เช็คอิน
   checkInNotes?: string;         // หมายเหตุตอนเช็คอิน
 
   // Check-out data
-  checkedOutAt?: string;         // เวลาเช็คเอาท์ (ISO format)
+  checkedOutAt?: string;         // เวลาเช็คเอาท์ (ISO)
   checkedOutBy?: string;         // UID ของผู้เช็คเอาท์
   checkOutNotes?: string;        // หมายเหตุตอนเช็คเอาท์
 
@@ -121,11 +141,11 @@ export interface DailyWorkItem extends WorkPermitRequest {
 // ========== Calendar View Types ==========
 
 export interface CalendarDayData {
-  date: string;                  // วันที่ในรูปแบบ "YYYY-MM-DD"
-  totalWorks: number;            // จำนวนงานทั้งหมด
-  scheduled: number;             // จำนวนงานที่จะเข้า
-  checkedIn: number;             // จำนวนงานที่เข้าแล้ว
-  checkedOut: number;            // จำนวนงานที่ออกแล้ว
+  date: string;                  // "YYYY-MM-DD"
+  totalWorks: number;
+  scheduled: number;
+  checkedIn: number;
+  checkedOut: number;
 }
 
 export interface CalendarViewResponse {
@@ -178,8 +198,6 @@ export interface SystemLog {
 
 // ========== Utility Types ==========
 
-export type Timestamp = string; // ISO 8601 format
-export type DateString = string; // "YYYY-MM-DD" format
-export type TimeString = string; // "HH:mm" format (24-hour)
-
-// (ลบบล็อค export type { ... } ที่ซ้ำออกทั้งหมด เพื่อหลีกเลี่ยง TS2484)
+export type Timestamp = string;   // ISO 8601
+export type DateString = string;  // "YYYY-MM-DD"
+export type TimeString = string;  // "HH:mm"
