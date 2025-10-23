@@ -1,12 +1,12 @@
 // ======================================================================
 // File: web/src/components/DailyView.tsx
 // Purpose: แสดงงานประจำวันในรูปแบบ 3 คอลัมน์ (Kanban)
-// Updated: 2025-10-22 (A3: ต่อ Quick View Drawer แบบอ่านเร็ว)
-// Changes (A3):
-//  - ครอบลิสต์ทั้งหมดด้วย QuickViewConnector เพื่อเปิด Drawer ได้เมื่อคลิกการ์ด
-//  - เพิ่มตัวช่วย map สถานะ: "scheduled" | "checked-in" | "checked-out" → "scheduled" | "in" | "out"
-//  - เพิ่มฟังก์ชันประกอบ payload สำหรับ Quick View (rid, contractor, area, schedule, notes, meta)
-//  - ทำให้การ์ดคลิก/กด Enter/Space เปิด Quick View ได้ และกันปุ่มเช็คอิน/เอาต์ไม่ให้เปิด Drawer ผิดจังหวะ
+// Updated: 2025-10-13 (Hotfix: build-errors)
+// Changes (hotfix):
+//  - MUI Grid: เปลี่ยน item/xs/md → size (API ใหม่ของ MUI v6/v7)
+//  - เพิ่ม safeFormatTimestamp() รองรับ string | Date | Firestore TS
+//  - normalize() แปลง WorkItem → DailyWorkItem ก่อน setWorks (แก้ TS2322)
+//  - คง UI/โค้ดเดิมทั้งหมดที่ไม่เกี่ยวข้อง
 // ======================================================================
 
 import { useState, useEffect } from "react";
@@ -37,10 +37,6 @@ import {
 } from "../services/dailyOperationsService";
 import type { DailyViewProps } from "../types/dailywork.types";
 import type { DailyWorkItem } from "../types/index";
-
-// ★ นำเข้า Quick View Connector (ทางใกล้)
-import QuickViewConnector from "./QuickViewConnector";
-import type { PermitLike } from "./QuickViewConnector";
 
 // ---------- ตัวช่วยเล็ก ๆ เพื่อกัน TypeScript ชนกับ formatTimestamp ----------
 function safeFormatTimestamp(
@@ -87,26 +83,6 @@ function normalize(item: any): DailyWorkItem {
     createdAt: item.createdAt ?? undefined,
     updatedAt: item.updatedAt ?? undefined,
   } as DailyWorkItem;
-}
-
-// ---------- ตัวช่วยสำหรับ Quick View ----------
-function formatThaiDate(d: Date): string {
-  // แสดงแบบสั้น อ่านเร็ว เช่น "22 ต.ค. 2568"
-  try {
-    return d.toLocaleDateString("th-TH", { day: "2-digit", month: "short", year: "numeric" });
-  } catch {
-    // เผื่อเครื่องไม่มี locale นี้
-    const dd = String(d.getDate()).padStart(2, "0");
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const yyyy = d.getFullYear() + 543;
-    return `${dd}/${mm}/${yyyy}`;
-  }
-}
-
-function mapDailyStatusToQuickView(s: string): string {
-  if (s === "checked-in") return "in";
-  if (s === "checked-out") return "out";
-  return s; // "scheduled" คงเดิม
 }
 
 export default function DailyView({ date, onCheckIn, onCheckOut }: DailyViewProps) {
@@ -235,83 +211,47 @@ export default function DailyView({ date, onCheckIn, onCheckOut }: DailyViewProp
     );
   }
 
-  // ---------- ฟังก์ชันประกอบ payload สำหรับ Quick View ----------
-  const buildPermitPayload = (item: DailyWorkItem): PermitLike => {
-    const status = mapDailyStatusToQuickView(item.dailyStatus);
-    // หมายเหตุ: ถ้าอยากให้แสดงหมายเหตุเลือกตามสถานะ
-    const notes =
-      status === "in" ? item.checkInNotes :
-      status === "out" ? item.checkOutNotes :
-      undefined;
-
-    return {
-      rid: item.rid,
-      title: item.contractorName || "รายละเอียดใบงาน",
-      contractorName: item.contractorName,
-      location: item.area,
-      schedule: {
-        dateText: formatThaiDate(date),
-        startTime: item.startTime,
-        endTime: item.endTime,
-      },
-      status,
-      // counts: (ถ้าภายหลังมี plan/checkedIn/checkedOut จะส่งเพิ่มได้)
-      meta: {
-        "ประเภทงาน": item.permitType ?? "-",
-      },
-      notes,
-    };
-  };
-
   // ========== Render ==========
 
   return (
     <>
-      {/* ครอบลิสต์ทั้งหมดด้วย QuickViewConnector เพื่อให้เรียก open(...) ได้ */}
-      <QuickViewConnector>
-        {({ open }) => (
-          <Grid container spacing={2}>
-            {/* Column 1: จะเข้า */}
-            <Grid size={{ xs: 12, md: 4 }}>
-              <WorkColumn
-                title="🟠 จะเข้า"
-                count={scheduled.length}
-                color="#ff9800"
-                items={scheduled}
-                actionLabel="เช็คอิน"
-                onAction={handleCheckInClick}
-                onOpen={(item) => open(buildPermitPayload(item))}
-              />
-            </Grid>
+      <Grid container spacing={2}>
+        {/* Column 1: จะเข้า */}
+        <Grid size={{ xs: 12, md: 4 }}>
+          <WorkColumn
+            title="🟠 จะเข้า"
+            count={scheduled.length}
+            color="#ff9800"
+            items={scheduled}
+            actionLabel="เช็คอิน"
+            onAction={handleCheckInClick}
+          />
+        </Grid>
 
-            {/* Column 2: เข้าแล้ว */}
-            <Grid size={{ xs: 12, md: 4 }}>
-              <WorkColumn
-                title="🟢 เข้าแล้ว"
-                count={checkedIn.length}
-                color="#4caf50"
-                items={checkedIn}
-                actionLabel="เช็คเอาท์"
-                onAction={handleCheckOutClick}
-                onOpen={(item) => open(buildPermitPayload(item))}
-              />
-            </Grid>
+        {/* Column 2: เข้าแล้ว */}
+        <Grid size={{ xs: 12, md: 4 }}>
+          <WorkColumn
+            title="🟢 เข้าแล้ว"
+            count={checkedIn.length}
+            color="#4caf50"
+            items={checkedIn}
+            actionLabel="เช็คเอาท์"
+            onAction={handleCheckOutClick}
+          />
+        </Grid>
 
-            {/* Column 3: ออกแล้ว */}
-            <Grid size={{ xs: 12, md: 4 }}>
-              <WorkColumn
-                title="🔵 ออกแล้ว"
-                count={checkedOut.length}
-                color="#2196f3"
-                items={checkedOut}
-                actionLabel={null}
-                onAction={undefined}
-                onOpen={(item) => open(buildPermitPayload(item))}
-              />
-            </Grid>
-          </Grid>
-        )}
-      </QuickViewConnector>
+        {/* Column 3: ออกแล้ว */}
+        <Grid size={{ xs: 12, md: 4 }}>
+          <WorkColumn
+            title="🔵 ออกแล้ว"
+            count={checkedOut.length}
+            color="#2196f3"
+            items={checkedOut}
+            actionLabel={null}
+            onAction={undefined}
+          />
+        </Grid>
+      </Grid>
 
       {/* ========== Modals ========== */}
 
@@ -347,10 +287,9 @@ interface WorkColumnProps {
   items: DailyWorkItem[];
   actionLabel: string | null;
   onAction?: (rid: string) => void;
-  onOpen: (item: DailyWorkItem) => void; // 🆕 เปิด Quick View
 }
 
-function WorkColumn({ title, count, color, items, actionLabel, onAction, onOpen }: WorkColumnProps) {
+function WorkColumn({ title, count, color, items, actionLabel, onAction }: WorkColumnProps) {
   return (
     <Paper sx={{ p: 2, minHeight: 400, bgcolor: "#fafafa" }}>
       {/* Header */}
@@ -369,13 +308,7 @@ function WorkColumn({ title, count, color, items, actionLabel, onAction, onOpen 
           </Typography>
         ) : (
           items.map((item) => (
-            <WorkCard
-              key={item.rid}
-              item={item}
-              actionLabel={actionLabel}
-              onAction={onAction}
-              onOpen={onOpen} // 🆕
-            />
+            <WorkCard key={item.rid} item={item} actionLabel={actionLabel} onAction={onAction} />
           ))
         )}
       </Box>
@@ -387,10 +320,9 @@ interface WorkCardProps {
   item: DailyWorkItem;
   actionLabel: string | null;
   onAction?: (rid: string) => void;
-  onOpen: (item: DailyWorkItem) => void; // 🆕
 }
 
-function WorkCard({ item, actionLabel, onAction, onOpen }: WorkCardProps) {
+function WorkCard({ item, actionLabel, onAction }: WorkCardProps) {
   const getBorderColor = () => {
     switch (item.dailyStatus) {
       case "scheduled":
@@ -404,36 +336,18 @@ function WorkCard({ item, actionLabel, onAction, onOpen }: WorkCardProps) {
     }
   };
 
-  // เปิด Quick View เมื่อคลิกการ์ด หรือกด Enter/Space
-  const handleOpen = () => onOpen(item);
-  const handleKeyDown: React.KeyboardEventHandler<HTMLDivElement> = (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      handleOpen();
-    }
-  };
-
   return (
     <Paper
       elevation={2}
-      onClick={handleOpen} // 🆕 คลิกเพื่อเปิด Quick View
-      onKeyDown={handleKeyDown} // 🆕 รองรับคีย์บอร์ด
-      role="button"
-      tabIndex={0}
       sx={{
         p: 2,
         bgcolor: "#fff",
         borderLeft: 4,
         borderColor: getBorderColor(),
         transition: "transform 0.2s, box-shadow 0.2s",
-        cursor: "pointer", // 🆕 สื่อว่าคลิกได้
         "&:hover": {
           transform: "translateY(-2px)",
           boxShadow: 4,
-        },
-        "&:focus-visible": {
-          outline: "2px solid #90caf9",
-          outlineOffset: "2px",
         },
       }}
     >
@@ -495,16 +409,7 @@ function WorkCard({ item, actionLabel, onAction, onOpen }: WorkCardProps) {
 
       {/* Action Button */}
       {actionLabel && onAction && (
-        <Button
-          variant="contained"
-          size="small"
-          fullWidth
-          sx={{ mt: 2 }}
-          onClick={(e) => {
-            e.stopPropagation(); // 🆕 กดปุ่มแล้วไม่ให้เปิด Quick View
-            onAction(item.rid);
-          }}
-        >
+        <Button variant="contained" size="small" fullWidth sx={{ mt: 2 }} onClick={() => onAction(item.rid)}>
           {actionLabel}
         </Button>
       )}

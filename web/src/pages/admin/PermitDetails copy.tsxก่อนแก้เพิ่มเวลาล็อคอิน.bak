@@ -1,10 +1,12 @@
 // ======================================================================
 // File: web/src/pages/admin/PermitDetails.tsx
-// เวอร์ชัน: 2025-10-22 (อ่านเข้า–ออกจาก Firestore แล้วฟิวส์กับข้อมูล API)
-// หน้าที่: แสดงรายละเอียดใบงาน + อนุมัติ/ไม่อนุมัติ + Export PDF
-// ปรับตามนี้:
-//  - เรียก updateStatusApi เป็นอ็อบเจ็กต์ { rid, status, reason? } และใช้ "approved"/"rejected"
-//  - กันกดซ้ำด้วย decideBusy (เดิมมีอยู่แล้ว)
+// เวอร์ชัน: 2025-10-02 (ใช้ Bearer token + รองรับ Signed URL ก่อนเสมอ)
+// หน้าที่: แสดงรายละเอียดใบงาน + อนุมัติ/ไม่อนุมัติ (ดึงรูปจาก signed URL ถ้ามี)
+// หมายเหตุ:
+//   • เรียก getRequestAdmin ด้วย Authorization: Bearer <ID token>
+//   • ถ้าฝั่ง API แนบ images.idCardCleanUrl / idCardStampedUrl / workers[].cleanUrl|stampedUrl
+//     จะใช้ URL เหล่านั้นก่อน (ไม่ต้องมีสิทธิ์อ่าน Storage ตรง)
+//   • ถ้า API ไม่มี URL เหล่านี้ ค่อย fallback ไปขอ getDownloadURL จาก Storage ตามเดิม
 // ======================================================================
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -15,15 +17,6 @@ import { storage, ensureSignedIn, auth } from "../../lib/firebase";
 import { canDecide } from "../../lib/getClaims";
 import ImageViewer from "../../components/ImageViewer";
 import { useReactToPrint } from "react-to-print";
-
-// Firestore (อ่านสมุด checkIns / checkOuts)
-import {
-  getFirestore,
-  collection,
-  query,
-  where,
-  getDocs,
-} from "firebase/firestore";
 
 function classNames(...xs: (string | false | undefined)[]) {
   return xs.filter(Boolean).join(" ");
@@ -198,31 +191,6 @@ async function pathToUrl(path?: string, url?: string): Promise<string | null> {
   }
 }
 
-// ---------- ช่วยหยิบค่าหลายชื่อฟิลด์ (สำหรับเข้า-ออก) ----------
-const pickAny = (root: AnyRec | undefined, keys: string[]): any => {
-  if (!root) return undefined;
-  for (const k of keys) {
-    const v = root[k];
-    if (v !== undefined && v !== null && v !== "") return v;
-  }
-  return undefined;
-};
-const formatWho = (by: any, altEmail?: string): string => {
-  if (!by) return altEmail || "-";
-  if (typeof by === "string") return by;
-  const name = by.displayName || by.name || by.fullname || "";
-  const email = by.email || altEmail || "";
-  return [name, email ? `(${email})` : ""].filter(Boolean).join(" ").trim() || "-";
-};
-const toDateParam = (ms?: number) => {
-  if (!ms) return "";
-  const d = new Date(ms);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${dd}`;
-};
-
 // ----------------------------- คอมโพเนนต์หลัก -----------------------------
 export default function PermitDetails() {
   const params = useParams<{ rid?: string; id?: string }>();
@@ -246,10 +214,6 @@ export default function PermitDetails() {
 
   const [requesterPhotoUrl, setRequesterPhotoUrl] = useState<string | null>(null);
   const [workerThumbUrls, setWorkerThumbUrls] = useState<string[]>([]);
-
-  // เก็บผลอ่านจาก Firestore (ล่าสุด) เพื่อมาฟิวส์กับของ API
-  const [externalCheckIn, setExternalCheckIn] = useState<{ at?: number; by?: any; email?: string; note?: string } | null>(null);
-  const [externalCheckOut, setExternalCheckOut] = useState<{ at?: number; by?: any; email?: string; note?: string } | null>(null);
 
   const printAreaRef = useRef(null);
   const handlePrint = useReactToPrint({
@@ -325,101 +289,6 @@ export default function PermitDetails() {
     run();
 
     return () => { alive = false; controller.abort(); };
-  }, [ridParam]);
-
-  // โหลดเข้า–ออกจาก Firestore (เอาล่าสุดของ RID นี้แบบไม่ใช้ orderBy)
-  useEffect(() => {
-    let alive = true;
-
-    // ตัวช่วย: คืนค่าเวลาเป็นเลข ms จาก doc (ลองหลายคีย์)
-    const pickMs = (doc: any, keys: string[]) => {
-      for (const k of keys) {
-        const v = doc?.[k];
-        const ms =
-          v && typeof v === "object" && ("seconds" in v || "_seconds" in v)
-            ? (v.seconds ?? v._seconds) * 1000 +
-              Math.round(((v.nanoseconds ?? v._nanoseconds) || 0) / 1e6)
-            : typeof v === "number"
-            ? (v > 1e12 ? v : v * 1000)
-            : typeof v === "string"
-            ? Date.parse(v)
-            : undefined;
-        if (ms && !Number.isNaN(ms)) return ms;
-      }
-      return undefined;
-    };
-
-    async function fetchAttendance() {
-      try {
-        if (!ridParam) return;
-        await ensureSignedIn();
-        const db = getFirestore();
-
-        // IN: where requestId == RID (ไม่ orderBy เพื่อเลี่ยงดัชนีผสม)
-        const inSnap = await getDocs(
-          query(collection(db, "checkIns"), where("requestId", "==", ridParam))
-        );
-        const inDocs = inSnap.docs.map(d => d.data());
-        // คัดตัวที่เวลาใหญ่สุด (ล่าสุด)
-        const inBest =
-          inDocs
-            .map((doc) => ({
-              raw: doc,
-              at: pickMs(doc, ["checkedInAt", "checkInAt", "createdAt"]),
-            }))
-            .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))[0] || null;
-
-        // OUT: where requestId == RID (ไม่ orderBy)
-        const outSnap = await getDocs(
-          query(collection(db, "checkOuts"), where("requestId", "==", ridParam))
-        );
-        const outDocs = outSnap.docs.map(d => d.data());
-        const outBest =
-          outDocs
-            .map((doc) => ({
-              raw: doc,
-              at: pickMs(doc, ["checkedOutAt", "checkOutAt", "createdAt"]),
-            }))
-            .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))[0] || null;
-
-        if (!alive) return;
-
-        setExternalCheckIn(
-          inBest
-            ? {
-                at: inBest.at,
-                by: inBest.raw?.checkedInBy ?? inBest.raw?.inBy ?? null,
-                email:
-                  inBest.raw?.checkedInBy?.email ??
-                  inBest.raw?.inByEmail ??
-                  inBest.raw?.email,
-                note: inBest.raw?.notes ?? inBest.raw?.note ?? "",
-              }
-            : null
-        );
-
-        setExternalCheckOut(
-          outBest
-            ? {
-                at: outBest.at,
-                by: outBest.raw?.checkedOutBy ?? outBest.raw?.outBy ?? null,
-                email:
-                  outBest.raw?.checkedOutBy?.email ??
-                  outBest.raw?.outByEmail ??
-                  outBest.raw?.email,
-                note: outBest.raw?.notes ?? outBest.raw?.note ?? "",
-              }
-            : null
-        );
-      } catch (e) {
-        console.warn("[PermitDetails] fetchAttendance (no-orderBy):", e);
-      }
-    }
-
-    fetchAttendance();
-    return () => {
-      alive = false;
-    };
   }, [ridParam]);
 
   // สกัดฟิลด์เพื่อแสดงผล
@@ -508,6 +377,40 @@ export default function PermitDetails() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, workersResolved.length]);
 
+  // ---------------- ปุ่มอนุมัติ/ไม่อนุมัติ ----------------
+  async function doApprove() {
+    const rid = (detail?.rid || detail?.requestId || detail?.id || ridParam) as string;
+    if (!rid) return;
+    setDecideBusy(true);
+    try {
+      await updateStatusApi({ rid, status: "approved" });
+      pushToast("success", "บันทึกสำเร็จ", "อนุมัติเรียบร้อย");
+      setTimeout(() => location.reload(), 700);
+    } catch (e:any) {
+      pushToast("error", "อนุมัติไม่สำเร็จ", e?.message || String(e));
+    } finally {
+      setDecideBusy(false);
+    }
+  }
+
+  async function doReject() {
+    if (!reason.trim()) { pushToast("info", "กรุณาระบุเหตุผล"); return; }
+    const rid = (detail?.rid || detail?.requestId || detail?.id || ridParam) as string;
+    if (!rid) return;
+    setDecideBusy(true);
+    try {
+      await updateStatusApi({ rid, status: "rejected", reason: reason.trim() });
+      pushToast("success", "บันทึกสำเร็จ", "ไม่อนุมัติเรียบร้อย");
+      setShowReject(false);
+      setReason("");
+      setTimeout(() => location.reload(), 700);
+    } catch (e:any) {
+      pushToast("error", "ไม่อนุมัติไม่สำเร็จ", e?.message || String(e));
+    } finally {
+      setDecideBusy(false);
+    }
+  }
+
   // รวมรูปสำหรับ ImageViewer (รวม workers + attachments/photos)
   const workerImageItems = useMemo(() => {
     const items: { label: string; path?: string; url?: string }[] = [];
@@ -536,67 +439,6 @@ export default function PermitDetails() {
     ...(detail?.images?.idCardCleanUrl ? [{ label: "บัตรประชาชน (ก่อนประทับ)", url: detail.images.idCardCleanUrl }] : []),
     ...(detail?.images?.idCardStampedUrl ? [{ label: "บัตรประชาชน (หลังประทับ)", url: detail.images.idCardStampedUrl }] : []),
   ]), [detail?.attachments, detail?.photos, detail?.images?.idCardCleanUrl, detail?.images?.idCardStampedUrl]);
-
-  // ---------- ค่าจาก API (ถ้ามี) ----------
-  const attendance = detail?.attendance || detail?.check || {};
-  const checkInAtRaw   = pickAny(detail, ["checkInAt","checkinAt","check_in_at"])   ?? pickAny(attendance, ["checkInAt","inAt","checkinAt"]);
-  const checkOutAtRaw  = pickAny(detail, ["checkOutAt","checkoutAt","check_out_at"]) ?? pickAny(attendance, ["checkOutAt","outAt","checkoutAt"]);
-  const checkInByObj   = pickAny(detail, ["checkInBy","checkinBy","check_in_by"])   ?? pickAny(attendance, ["checkInBy","inBy"]);
-  const checkOutByObj  = pickAny(detail, ["checkOutBy","checkoutBy","check_out_by"]) ?? pickAny(attendance, ["checkOutBy","outBy"]);
-  const checkInEmail   = pickAny(detail, ["checkInByEmail","checkinByEmail"])       ?? pickAny(attendance, ["checkInByEmail","inByEmail"]);
-  const checkOutEmail  = pickAny(detail, ["checkOutByEmail","checkoutByEmail"])     ?? pickAny(attendance, ["checkOutByEmail","outByEmail"]);
-  const checkInNoteApi = pickAny(detail, ["checkInNote","checkinNote","check_in_note"]) ?? pickAny(attendance, ["checkInNote","inNote"]);
-  const checkOutNoteApi= pickAny(detail, ["checkOutNote","checkoutNote","check_out_note"]) ?? pickAny(attendance, ["checkOutNote","outNote"]);
-
-  // ฟิวส์: ใช้ของ API ก่อน ถ้าไม่มีค่อยใช้ Firestore
-  const checkInAtFinal  = tsToMillis(checkInAtRaw) ?? externalCheckIn?.at;
-  const checkOutAtFinal = tsToMillis(checkOutAtRaw) ?? externalCheckOut?.at;
-
-  const whoInFinal  = (formatWho(checkInByObj,  String(checkInEmail || "")) !== "-" ?
-                      formatWho(checkInByObj,  String(checkInEmail || "")) :
-                      formatWho(externalCheckIn?.by,  externalCheckIn?.email));
-  const whoOutFinal = (formatWho(checkOutByObj, String(checkOutEmail || "")) !== "-" ?
-                      formatWho(checkOutByObj, String(checkOutEmail || "")) :
-                      formatWho(externalCheckOut?.by, externalCheckOut?.email));
-
-  const checkInNoteFinal  = (checkInNoteApi  ?? externalCheckIn?.note)  || "";
-  const checkOutNoteFinal = (checkOutNoteApi ?? externalCheckOut?.note) || "";
-
-  const plannedStart = tsToMillis(detail?.work?.from || detail?.time?.start || detail?.from || detail?.startAt);
-  const opDateParam  = toDateParam(checkInAtFinal || plannedStart);
-
-  // ---------- ฟังก์ชันอนุมัติ/ไม่อนุมัติ ----------
-  async function doApprove() {
-    if (!ridParam || decideBusy) return;
-    setDecideBusy(true);
-    try {
-      // เรียกแบบอ็อบเจ็กต์ให้ตรงกับยูทิล + ใช้คำที่ระบบเดิมรองรับ
-      await updateStatusApi({ rid: ridParam, status: "approved" });
-      pushToast("success", "อนุมัติสำเร็จ");
-      setTimeout(() => window.location.reload(), 800);
-    } catch (e: any) {
-      pushToast("error", "อนุมัติไม่สำเร็จ", e?.message || String(e));
-    } finally {
-      setDecideBusy(false);
-    }
-  }
-
-  async function doReject() {
-    if (!ridParam || !reason.trim() || decideBusy) return;
-    setDecideBusy(true);
-    try {
-      // เรียกแบบอ็อบเจ็กต์ให้ตรงกับยูทิล + ใช้คำที่ระบบเดิมรองรับ
-      await updateStatusApi({ rid: ridParam, status: "rejected", reason: reason.trim() });
-      pushToast("success", "ไม่อนุมัติสำเร็จ");
-      setTimeout(() => window.location.reload(), 800);
-    } catch (e: any) {
-      pushToast("error", "ไม่อนุมัติไม่สำเร็จ", e?.message || String(e));
-    } finally {
-      setDecideBusy(false);
-      setShowReject(false);
-      setReason("");
-    }
-  }
 
   return (
     <div>
@@ -657,7 +499,7 @@ export default function PermitDetails() {
       {!loading && !err && data && thaiStatus(detail?.status || detail?.decision?.status) === "รอดำเนินการ" && allowed && (
         <div className="mt-4 flex flex-wrap items-center gap-3 no-print">
           <button
-            onClick={async () => { await doApprove(); }}
+            onClick={doApprove}
             disabled={decideBusy}
             className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl disabled:bg-gray-400"
           >
@@ -720,6 +562,7 @@ export default function PermitDetails() {
                         className="w-full h-full object-cover"
                         loading="eager"
                         decoding="async"
+                        fetchPriority="high"
                       />
                     ) : (
                       <>รูปผู้ขอ<br/>(ดูในไฟล์แนบ)</>
@@ -840,40 +683,6 @@ export default function PermitDetails() {
                 )}
               </div>
             </div>
-
-            {/* 5) ประวัติการเข้า-ออกหน้างาน (แบบย่อ) */}
-            <div className="rounded-2xl border border-gray-200 bg-white p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-base font-semibold">5) ประวัติการเข้า-ออกหน้างาน</div>
-                {opDateParam && (
-                  <Link
-                    to={`/admin/daily-operations?date=${opDateParam}`}
-                    className="text-sm px-3 py-1 rounded-lg border border-slate-300 hover:bg-slate-50"
-                    title="ไปดูวันนั้นในงานประจำวัน"
-                  >
-                    ไปดูวันนั้นในงานประจำวัน
-                  </Link>
-                )}
-              </div>
-              <div className="grid md:grid-cols-2 gap-2 text-sm">
-                <div>
-                  <div className="text-gray-500">เข้าเมื่อ</div>
-                  <div className="font-medium">{fmtDateTimeBE(checkInAtFinal)}</div>
-                  <div className="text-slate-600 mt-0.5">{whoInFinal || "-"}</div>
-                  {checkInNoteFinal ? (
-                    <div className="text-slate-500 mt-0.5">เหตุผล: {String(checkInNoteFinal)}</div>
-                  ) : null}
-                </div>
-                <div>
-                  <div className="text-gray-500">ออกเมื่อ</div>
-                  <div className="font-medium">{fmtDateTimeBE(checkOutAtFinal)}</div>
-                  <div className="text-slate-600 mt-0.5">{whoOutFinal || "-"}</div>
-                  {checkOutNoteFinal ? (
-                    <div className="text-slate-500 mt-0.5">เหตุผล: {String(checkOutNoteFinal)}</div>
-                  ) : null}
-                </div>
-              </div>
-            </div>
           </section>
 
           {/* ขวา: ImageViewer */}
@@ -933,7 +742,7 @@ export default function PermitDetails() {
                     ยกเลิก
                   </button>
                   <button
-                    onClick={async () => { await doReject(); }}
+                    onClick={doReject}
                     disabled={decideBusy || !reason.trim()}
                     className="flex-1 px-3 py-2 rounded-lg text-white bg-rose-600 hover:bg-rose-700 disabled:bg-gray-400"
                   >
