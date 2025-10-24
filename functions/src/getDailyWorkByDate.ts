@@ -1,20 +1,26 @@
 // ======================================================================
 // File: functions/src/getDailyWorkByDate.ts
-// เวอร์ชัน: 2025-10-13 (Task 20 - FIXED)
+// เวอร์ชัน: 2025-10-24 (AuthZ-integrated, timezone-safe)
 // หน้าที่: ดึงข้อมูลงานทั้งหมดในวันที่เลือก แยกตาม dailyStatus
 // Region: asia-southeast1
-// 
-// 🔧 การแก้ไข:
-//   - แก้ query จาก startDate → work.from (เพราะ Firestore ไม่มีฟิลด์ startDate)
-//   - แปลง work.from จาก "2025-10-13T14:16" → "2025-10-13" เพื่อเทียบวัน
-//   - รองรับ status ทั้ง "approved" และ "อนุมัติ"
-//   - เพิ่ม error handling ที่ดีขึ้น
+//
+// การปรับปรุงจากไฟล์เดิม (สรุป):
+//   1) ✅ ใช้ด่านกลางจาก authz.ts  (requireFirebaseUser + canViewDailyOps)
+//      - ไม่ verify token และไม่อ่านสิทธิ์เองซ้ำในไฟล์นี้อีก
+//      - รองรับ fallback จาก pagePermissions → caps (ซึ่งเราเพิ่มใน authz.ts แล้ว)
+//   2) ✅ เทียบ "วันนี้" ตาม timezone ผู้ใช้ ไปอยู่ใน canViewDailyOps (authz.ts)
+//   3) ✅ คง CORS/โครง POST + preflight OPTIONS ไว้เหมือนเดิม
+//   4) ✅ คงวิธี query เดิม (loop สถานะ 'approved'/'อนุมัติ' แล้ว filter ด้วย JS)
+//      - ถ้าต้องการประสิทธิภาพสูงขึ้นในอนาคต ควรมีฟิลด์ date (YYYY-MM-DD) แยกในเอกสารเพื่อ query ตรง
 // ======================================================================
 
 import { onRequest } from "firebase-functions/v2/https";
 import { getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
-import { getAuth } from "firebase-admin/auth";
+import * as logger from "firebase-functions/logger";
+
+// ✅ ดึงด่านกลางที่เพิ่งปรับแล้ว
+import { requireFirebaseUser, canViewDailyOps, readAdminDoc } from "./authz";
 
 if (!getApps().length) initializeApp();
 const db = getFirestore();
@@ -28,70 +34,21 @@ function setCORS(res: any) {
   res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }
 
-// ==================== ตรวจสอบสิทธิ์ ====================
-async function checkPermissions(req: any): Promise<{
-  ok: boolean;
-  error?: string;
-  uid?: string;
-  email?: string;
-}> {
-  const authHeader = req.get("Authorization") || "";
-  const match = authHeader.match(/^Bearer\s+(.+)$/i);
-  
-  if (!match) {
-    return { ok: false, error: "missing_token" };
-  }
-
-  try {
-    const token = match[1];
-    const decoded = await getAuth().verifyIdToken(token);
-    const email = decoded.email?.toLowerCase();
-    
-    if (!email) {
-      return { ok: false, error: "invalid_email" };
-    }
-
-    // เช็คว่ามีสิทธิ์ viewTodayWork หรือ viewOtherDaysWork
-    const adminDoc = await db.collection("admins").doc(email).get();
-    
-    if (!adminDoc.exists) {
-      return { ok: false, error: "not_admin" };
-    }
-
-    const adminData = adminDoc.data();
-    const permissions = adminData?.permissions || {};
-    
-    if (!permissions.viewTodayWork && !permissions.viewOtherDaysWork) {
-      return { ok: false, error: "insufficient_permissions" };
-    }
-
-    return { ok: true, uid: decoded.uid, email };
-  } catch (e: any) {
-    console.error("[checkPermissions] Error:", e);
-    return { ok: false, error: "invalid_token" };
-  }
-}
-
-// ==================== Helper: แปลงวันที่ ====================
-/**
- * แปลง datetime string เป็น date string
- * "2025-10-13T14:16" → "2025-10-13"
- */
+// ==================== Helper: แปลงวันที่/เวลา ====================
+/** "2025-10-13T14:16" → "2025-10-13" */
 function extractDate(datetimeStr: string): string {
   if (!datetimeStr) return "";
-  
-  // ถ้าเป็น ISO format ที่มี T
-  if (datetimeStr.includes("T")) {
-    return datetimeStr.split("T")[0];
-  }
-  
-  // ถ้าเป็น format อื่นๆ ลองแยกด้วย space
-  if (datetimeStr.includes(" ")) {
-    return datetimeStr.split(" ")[0];
-  }
-  
-  // ถ้าเป็น YYYY-MM-DD อยู่แล้ว
-  return datetimeStr;
+  if (datetimeStr.includes("T")) return datetimeStr.split("T")[0];
+  if (datetimeStr.includes(" ")) return datetimeStr.split(" ")[0];
+  return datetimeStr; // assume already YYYY-MM-DD
+}
+
+/** "2025-10-13T14:16" → "14:16" */
+function extractTime(datetimeStr: string): string {
+  if (!datetimeStr) return "N/A";
+  if (datetimeStr.includes("T")) return (datetimeStr.split("T")[1] || "").substring(0, 5);
+  if (datetimeStr.includes(" ")) return (datetimeStr.split(" ")[1] || "").substring(0, 5);
+  return "N/A";
 }
 
 // ==================== Main Function ====================
@@ -113,68 +70,57 @@ export const getDailyWorkByDate = onRequest(
     }
 
     try {
-      // ========== ตรวจสอบสิทธิ์ ==========
-      const auth = await checkPermissions(req);
-      if (!auth.ok) {
-        res.status(403).json({ ok: false, error: auth.error });
+      // ========== ตรวจสอบตัวตนและโหลดสิทธิ์ (รวม fallback pagePermissions → caps) ==========
+      const who = await requireFirebaseUser(req);
+      if (!who.ok) {
+        res.status(who.status).json({ ok: false, error: who.error });
         return;
       }
 
       // ========== รับพารามิเตอร์ ==========
-      const { date } = req.body; // "2025-10-13"
-
-      if (!date || typeof date !== "string") {
-        res.status(400).json({ 
-          ok: false, 
+      const { date } = (req.body || {}) as { date?: string };
+      if (!date || typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        res.status(400).json({
+          ok: false,
           error: "invalid_date",
-          message: "กรุณาระบุวันที่ในรูปแบบ YYYY-MM-DD" 
+          message: "กรุณาระบุวันที่ในรูปแบบ YYYY-MM-DD",
         });
         return;
       }
 
-      // ========== ตรวจสอบสิทธิ์ดูวันอื่น ==========
-      const adminDoc = await db.collection("admins").doc(auth.email!).get();
-      const adminData = adminDoc.data();
-      const canViewOtherDays = adminData?.permissions?.viewOtherDaysWork || false;
-
-      // ถ้าไม่มีสิทธิ์ viewOtherDaysWork ให้ดูได้แค่วันนี้
-      const today = new Date().toISOString().split("T")[0]; // "2025-10-13"
-      if (!canViewOtherDays && date !== today) {
-        res.status(403).json({ 
-          ok: false, 
-          error: "cannot_view_other_days",
-          message: "คุณไม่มีสิทธิ์ดูงานวันอื่น" 
-        });
+      // ========== ตรวจสิทธิ์ดูงานประจำวันของวันที่ร้องขอ ==========
+      // หมายเหตุ: canViewDailyOps ใช้ timezone ของผู้ใช้ภายใน (authz.ts) ให้ superadmin ผ่าน, มี fallback pagePermissions
+      // เพื่อความแม่น เราลองดึง adminDoc สดอีกครั้ง (ถ้าไม่มีให้ใช้ข้อมูลใน who)
+      const adminDoc = (await readAdminDoc(who.email)) || (who as any);
+      if (!canViewDailyOps(adminDoc, date)) {
+        res.status(403).json({ ok: false, error: "insufficient_permissions" });
         return;
       }
 
-      // ========== Query งานทั้งหมด (รองรับ status ทั้ง 2 ภาษา) ==========
-      console.log(`[getDailyWorkByDate] Querying for date: ${date}`);
-      
-      // 🔧 Query ทีละ status (เพราะ Firestore ไม่รองรับ OR ใน where)
+      // ========== Query งานทั้งหมด (รองรับ status ทั้ง "approved" และ "อนุมัติ") ==========
+      logger.info(`[getDailyWorkByDate] Querying for date: ${date}`, { email: who.email });
+
       const approvedStatuses = ["approved", "อนุมัติ"];
       const allRequests: any[] = [];
-      
+
+      // Firestore ไม่มี OR ใน where (คลาสสิก) → loop ทีละสถานะ
       for (const status of approvedStatuses) {
-        const snapshot = await db
-          .collection("requests")
-          .where("status", "==", status)
-          .get();
-        
-        // Filter ด้วย JavaScript เพราะไม่สามารถ query nested field work.from ได้โดยตรง
-        snapshot.forEach(doc => {
+        const snapshot = await db.collection("requests").where("status", "==", status).get();
+
+        snapshot.forEach((doc) => {
           const data = doc.data();
           const workFrom = data.work?.from || "";
           const workDate = extractDate(workFrom);
-          
-          // เช็คว่าวันที่ตรงกับที่ต้องการไหม
           if (workDate === date) {
             allRequests.push({ id: doc.id, ...data });
           }
         });
       }
 
-      console.log(`[getDailyWorkByDate] Found ${allRequests.length} requests for date ${date}`);
+      logger.info(`[getDailyWorkByDate] Found ${allRequests.length} requests`, {
+        date,
+        email: who.email,
+      });
 
       if (allRequests.length === 0) {
         res.json({
@@ -183,7 +129,7 @@ export const getDailyWorkByDate = onRequest(
           scheduled: [],
           checkedIn: [],
           checkedOut: [],
-          total: 0
+          total: 0,
         });
         return;
       }
@@ -193,12 +139,9 @@ export const getDailyWorkByDate = onRequest(
       const checkedIn: any[] = [];
       const checkedOut: any[] = [];
 
-      allRequests.forEach(doc => {
-        const data = doc;
-        
-        // สร้าง work object สำหรับ response
+      allRequests.forEach((data) => {
         const work = {
-          rid: data.requestId || doc.id,
+          rid: data.requestId || data.id,
           contractorName: data.requester?.fullname || data.requester?.company || "ไม่ระบุ",
           permitType: data.work?.type || "ไม่ระบุ",
           area: `${data.work?.floor || "N/A"} / ${data.work?.area || "N/A"}`,
@@ -209,7 +152,6 @@ export const getDailyWorkByDate = onRequest(
           lastCheckOut: data.lastCheckOut || null,
         };
 
-        // แยกตาม dailyStatus
         switch (data.dailyStatus) {
           case "checked-in":
             checkedIn.push(work);
@@ -229,43 +171,15 @@ export const getDailyWorkByDate = onRequest(
         scheduled,
         checkedIn,
         checkedOut,
-        total: scheduled.length + checkedIn.length + checkedOut.length
+        total: scheduled.length + checkedIn.length + checkedOut.length,
       });
-
     } catch (e: any) {
-      console.error("[getDailyWorkByDate] Error:", e);
-      res.status(500).json({ 
-        ok: false, 
+      logger.error("[getDailyWorkByDate] Error", { message: e?.message || String(e) });
+      res.status(500).json({
+        ok: false,
         error: "internal_error",
-        message: e?.message || "เกิดข้อผิดพลาด" 
+        message: e?.message || "เกิดข้อผิดพลาด",
       });
     }
   }
 );
-
-// ==================== Helper: แยกเวลา ====================
-/**
- * แยกเวลาจาก datetime string
- * "2025-10-13T14:16" → "14:16"
- */
-function extractTime(datetimeStr: string): string {
-  if (!datetimeStr) return "N/A";
-  
-  // ถ้ามี T ให้แยกเอาส่วนหลัง T
-  if (datetimeStr.includes("T")) {
-    const parts = datetimeStr.split("T");
-    if (parts.length > 1) {
-      return parts[1].substring(0, 5); // "14:16"
-    }
-  }
-  
-  // ถ้ามี space ให้แยกเอาส่วนหลัง space
-  if (datetimeStr.includes(" ")) {
-    const parts = datetimeStr.split(" ");
-    if (parts.length > 1) {
-      return parts[1].substring(0, 5);
-    }
-  }
-  
-  return "N/A";
-}
