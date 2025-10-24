@@ -327,26 +327,7 @@ export default function Dashboard() {
     return { labels, counts, W, H, PADX, PADY, points, max };
   }, [rows]);
 
-  const handleExportCsv = () => {
-    const recent = Array.isArray(rows) ? rows.slice(0, 100) : [];
-    const header = ["RID", "ผู้ยื่น", "ประเภทงาน", "สถานะ", "วันที่ยื่น/อัปเดตล่าสุด"];
-    const lines = [header.join(",")];
-    for (const r of recent) {
-      const requester = r?.requester?.fullname || r?.requester?.name || r?.requester?.company || "-";
-      const type = r?.work?.type || r?.work?.category || "ไม่ระบุ";
-      const t = r?.createdAt ?? r?.updatedAt ?? r?.approvedAt ?? r?.rejectedAt;
-      const dateStr = toDateLabel(t);
-      const esc = (s: string) => `"${String(s).replace(/"/g, '""')}"`;
-      lines.push([r.rid, requester, type, r.status || "-", dateStr].map(esc).join(","));
-    }
-    const csv = "\uFEFF" + lines.join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-    a.download = `recent-requests-${ts}.csv`;
-    document.body.appendChild(a); a.click(); a.remove();
-  };
+
 
   const columns: GridColDef[] = [
     {
@@ -447,7 +428,7 @@ export default function Dashboard() {
         <Typography variant="h5" fontWeight={700}>Dashboard</Typography>
         <Stack direction="row" spacing={1}>
           <Button size="small" variant="outlined" onClick={() => location.reload()}>รีโหลด</Button>
-          <Button size="small" variant="outlined" onClick={handleExportCsv}>Export CSV</Button>
+
           <Button component={RouterLink} to="/admin/permits" size="small">ดูทั้งหมด</Button>
         </Stack>
       </Stack>
@@ -533,7 +514,7 @@ export default function Dashboard() {
             <Typography variant="subtitle1" fontWeight={700}>Recent Requests ({rows.length} รายการ)</Typography>
             <Stack direction="row" spacing={1}>
               <Button size="small" variant="outlined" onClick={() => location.reload()}>รีโหลด</Button>
-              <Button size="small" variant="outlined" onClick={handleExportCsv}>Export CSV</Button>
+    
               <Button size="small" component={RouterLink} to="/admin/permits">ดูทั้งหมด</Button>
             </Stack>
           </Stack>

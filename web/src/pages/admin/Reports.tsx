@@ -1,29 +1,28 @@
 // ======================================================================
 // File: web/src/pages/admin/Reports.tsx
-// เวอร์ชัน: 2025-09-23 00:50 (Asia/Bangkok)
-// หน้าที่: หน้า Reports (MVP) — KPI + Trends จาก listRequests (คำนวณฝั่งเว็บ)
+// เวอร์ชัน: 2025-10-24 (เพิ่มฟีเจอร์เลือกฟิลด์ CSV export)
+// หน้าที่: หน้า Reports (MVP) — KPI + Trends + Export CSV แบบเลือกฟิลด์ได้
 // เชื่อม auth ผ่านอะแดปเตอร์ ../../lib/reportsApi (แนบ token/x-api-key/x-requester-email ให้อัตโนมัติ)
-// หมายเหตุ:
-// - แก้ Error "reading 'length'" ด้วย defensive code เมื่อ rows ไม่ใช่ Array
-// - ใช้ Grid รุ่นใหม่: import Grid จาก '@mui/material/Grid' + prop size={{ xs, sm, md }}
+// การเปลี่ยนแปลง:
+// - เพิ่ม Dialog สำหรับเลือกฟิลด์ที่ต้องการ export
+// - เพิ่มฟังก์ชัน exportCustomCSV ที่ export เฉพาะฟิลด์ที่เลือก
 // ======================================================================
 
 import * as React from "react";
 import {
   Box, Stack, Typography, Button, Card, CardContent, Divider,
   Select, MenuItem, FormControl, InputLabel, Tabs, Tab, Tooltip, Alert, CircularProgress,
+  Dialog, DialogTitle, DialogContent, DialogActions, FormControlLabel, Checkbox, FormGroup,
 } from "@mui/material";
-import Grid from "@mui/material/Grid"; // ใช้ Grid ตัวหลัก
+import Grid from "@mui/material/Grid";
 import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
 import FileDownloadRoundedIcon from "@mui/icons-material/FileDownloadRounded";
 
 import dayjs from "dayjs";
 
-// NOTE: แยก import ค่าที่ "รันจริง" กับ "ชนิด" ออกจากกัน
 import { fetchRequests, toMillis } from "../../lib/reportsApi";
 import type { RequestRecord } from "../../lib/reportsApi";
 
-// ---- Recharts ----
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, Legend,
 } from "recharts";
@@ -31,11 +30,18 @@ import {
 type ReportsTab = "overview" | "departments" | "workTypes" | "efficiency" | "safety";
 type KpiState = {
   totalPermits?: number | null;
-  approvalRate?: number | null;   // %
-  avgLeadTimeHrs?: number | null; // ชั่วโมง
-  complianceScore?: number | null; // %
+  approvalRate?: number | null;
+  avgLeadTimeHrs?: number | null;
+  complianceScore?: number | null;
 };
 type RangePreset = "today" | "thisWeek" | "thisMonth" | "last30";
+
+// ฟิลด์ที่สามารถ export ได้
+type ExportField = {
+  key: string;
+  label: string;
+  enabled: boolean;
+};
 
 // ---------- Utilities ----------
 function asArray<T>(v: unknown): T[] {
@@ -68,7 +74,6 @@ function computeKpis(rowsInput: unknown): KpiState {
     ? leadTimesHrs.reduce((a, b) => a + b, 0) / leadTimesHrs.length
     : 0;
 
-  // Compliance (MVP): มี idCardStampedPath ถือว่าผ่าน
   const compliant = rows.filter((r) => !!r?.images?.idCardStampedPath).length;
   const complianceScore = total ? (compliant / total) * 100 : 0;
 
@@ -100,6 +105,104 @@ function computeTrends(rowsInput: unknown): TrendPoint[] {
   return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
 }
 
+// ---------- Export CSV Function ----------
+function exportCustomCSV(rows: RequestRecord[], fields: ExportField[]) {
+  const enabledFields = fields.filter(f => f.enabled);
+  
+  if (enabledFields.length === 0) {
+    alert("กรุณาเลือกฟิลด์อย่างน้อย 1 ฟิลด์");
+    return;
+  }
+
+  // สร้าง header
+  const headers = enabledFields.map(f => f.label);
+  
+  // สร้างข้อมูล
+  const lines = [headers.join(",")];
+  
+  const esc = (v: any) => {
+    const str = String(v ?? "");
+    return `"${str.replace(/"/g, '""')}"`;
+  };
+
+  const formatDate = (v: any) => {
+    const ms = toMillis(v);
+    if (!ms) return "";
+    return dayjs(ms).format("YYYY-MM-DD HH:mm:ss");
+  };
+
+  rows.forEach((r) => {
+    const rowData: string[] = [];
+    
+    enabledFields.forEach((field) => {
+      switch (field.key) {
+        case "rid":
+          rowData.push(esc(r?.requestId || r?.id || ""));
+          break;
+        case "requesterName":
+          rowData.push(esc(r?.requester?.fullname || r?.requester?.name || ""));
+          break;
+        case "company":
+          rowData.push(esc(r?.requester?.company || ""));
+          break;
+        case "workType":
+          rowData.push(esc(r?.work?.type || ""));
+          break;
+        case "workCategory":
+          rowData.push(esc(r?.work?.category || ""));
+          break;
+        case "floor":
+          rowData.push(esc(r?.work?.floor || ""));
+          break;
+        case "area":
+          rowData.push(esc(r?.work?.area || ""));
+          break;
+        case "status":
+          rowData.push(esc(r?.status || ""));
+          break;
+        case "createdAt":
+          rowData.push(esc(formatDate(r?.createdAt)));
+          break;
+        case "approvedAt":
+          rowData.push(esc(formatDate(r?.approvedAt)));
+          break;
+        case "rejectedAt":
+          rowData.push(esc(formatDate(r?.rejectedAt)));
+          break;
+        case "updatedAt":
+          rowData.push(esc(formatDate(r?.updatedAt)));
+          break;
+        case "workFrom":
+          rowData.push(esc(formatDate(r?.work?.from)));
+          break;
+        case "workTo":
+          rowData.push(esc(formatDate(r?.work?.to)));
+          break;
+        case "dailyStatus":
+          rowData.push(esc(r?.dailyStatus || ""));
+          break;
+        default:
+          rowData.push("");
+      }
+    });
+    
+    lines.push(rowData.join(","));
+  });
+
+  // สร้าง CSV file
+  const csv = "\uFEFF" + lines.join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const timestamp = dayjs().format("YYYY-MM-DD_HHmmss");
+  a.download = `daily-report_${timestamp}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 // ---------- คอมโพเนนต์หลัก ----------
 export default function Reports() {
   const [range, setRange] = React.useState<RangePreset>("last30");
@@ -114,6 +217,27 @@ export default function Reports() {
   const [trends, setTrends] = React.useState<TrendPoint[]>([]);
   const [loading, setLoading] = React.useState<boolean>(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [allRows, setAllRows] = React.useState<RequestRecord[]>([]);
+
+  // Export dialog state
+  const [exportDialogOpen, setExportDialogOpen] = React.useState(false);
+  const [exportFields, setExportFields] = React.useState<ExportField[]>([
+    { key: "rid", label: "RID", enabled: true },
+    { key: "requesterName", label: "ผู้ยื่น", enabled: true },
+    { key: "company", label: "บริษัท", enabled: true },
+    { key: "workType", label: "ประเภทงาน", enabled: true },
+    { key: "workCategory", label: "หมวดงาน", enabled: false },
+    { key: "floor", label: "ชั้น", enabled: false },
+    { key: "area", label: "พื้นที่", enabled: false },
+    { key: "status", label: "สถานะ", enabled: true },
+    { key: "createdAt", label: "วันที่ยื่น", enabled: true },
+    { key: "approvedAt", label: "วันที่อนุมัติ", enabled: false },
+    { key: "rejectedAt", label: "วันที่ปฏิเสธ", enabled: false },
+    { key: "updatedAt", label: "วันที่อัปเดต", enabled: false },
+    { key: "workFrom", label: "เวลาเริ่มงาน", enabled: false },
+    { key: "workTo", label: "เวลาสิ้นสุดงาน", enabled: false },
+    { key: "dailyStatus", label: "สถานะรายวัน", enabled: false },
+  ]);
 
   React.useEffect(() => {
     let alive = true;
@@ -125,6 +249,7 @@ export default function Reports() {
         if (!alive) return;
 
         const safeRows = asArray<RequestRecord>(rows);
+        setAllRows(safeRows);
         setKpis(computeKpis(safeRows));
         setTrends(computeTrends(safeRows));
       } catch (e: any) {
@@ -143,6 +268,7 @@ export default function Reports() {
     try {
       const rows = await fetchRequests({ from, to, status: "All" });
       const safeRows = asArray<RequestRecord>(rows);
+      setAllRows(safeRows);
       setKpis(computeKpis(safeRows));
       setTrends(computeTrends(safeRows));
     } catch (e: any) {
@@ -152,8 +278,31 @@ export default function Reports() {
     }
   }
 
-  function handleExportAll() {
-    // TODO: เชื่อม /api/reports/export (เฟสถัดไป)
+  function handleOpenExportDialog() {
+    setExportDialogOpen(true);
+  }
+
+  function handleCloseExportDialog() {
+    setExportDialogOpen(false);
+  }
+
+  function handleToggleField(key: string) {
+    setExportFields(prev =>
+      prev.map(f => f.key === key ? { ...f, enabled: !f.enabled } : f)
+    );
+  }
+
+  function handleSelectAll() {
+    setExportFields(prev => prev.map(f => ({ ...f, enabled: true })));
+  }
+
+  function handleDeselectAll() {
+    setExportFields(prev => prev.map(f => ({ ...f, enabled: false })));
+  }
+
+  function handleExport() {
+    exportCustomCSV(allRows, exportFields);
+    setExportDialogOpen(false);
   }
 
   return (
@@ -161,34 +310,34 @@ export default function Reports() {
       {/* Header */}
       <Stack direction={{ xs: "column", md: "row" }} spacing={1.5} alignItems={{ xs: "flex-start", md: "center" }}>
         <Typography variant="h5" sx={{ fontWeight: 800, flexGrow: 1 }}>
-          Reports (MVP)
+          รายงาน (Reports)
         </Typography>
 
         {/* Filters: Date Range Preset */}
         <FormControl size="small" sx={{ minWidth: 190 }}>
-          <InputLabel id="reports-range-label">Date Range</InputLabel>
+          <InputLabel id="reports-range-label">ช่วงเวลา</InputLabel>
           <Select
             labelId="reports-range-label"
-            label="Date Range"
+            label="ช่วงเวลา"
             value={range}
             onChange={(e) => setRange(e.target.value as RangePreset)}
           >
-            <MenuItem value="today">Today</MenuItem>
-            <MenuItem value="thisWeek">This Week</MenuItem>
-            <MenuItem value="thisMonth">This Month</MenuItem>
-            <MenuItem value="last30">Last 30 Days</MenuItem>
+            <MenuItem value="today">วันนี้</MenuItem>
+            <MenuItem value="thisWeek">สัปดาห์นี้</MenuItem>
+            <MenuItem value="thisMonth">เดือนนี้</MenuItem>
+            <MenuItem value="last30">30 วันที่ผ่านมา</MenuItem>
           </Select>
         </FormControl>
 
-        <Tooltip title="รีเฟรชข้อมูล (คำนวณจากรายการ listRequests)">
+        <Tooltip title="รีเฟรชข้อมูล">
           <Button startIcon={<RefreshRoundedIcon />} variant="outlined" onClick={handleRefresh} disabled={loading}>
-            {loading ? "Refreshing..." : "Refresh"}
+            {loading ? "กำลังโหลด..." : "รีเฟรช"}
           </Button>
         </Tooltip>
 
-        <Tooltip title="Export All (CSV/PDF – จะเชื่อมในเฟสถัดไป)">
-          <Button startIcon={<FileDownloadRoundedIcon />} variant="contained" onClick={handleExportAll}>
-            Export All
+        <Tooltip title="Export CSV แบบเลือกฟิลด์ได้">
+          <Button startIcon={<FileDownloadRoundedIcon />} variant="contained" onClick={handleOpenExportDialog}>
+            Export CSV
           </Button>
         </Tooltip>
       </Stack>
@@ -280,11 +429,47 @@ export default function Reports() {
             }}
           >
             <Typography variant="body2" color="text.secondary">
-              รายการสำหรับแท็บ “{tab}” จะเติมในเฟสถัดไป
+              รายการสำหรับแท็บ "{tab}" จะเติมในเฟสถัดไป
             </Typography>
           </Box>
         )}
       </Box>
+
+      {/* Export Dialog */}
+      <Dialog open={exportDialogOpen} onClose={handleCloseExportDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>เลือกฟิลด์ที่ต้องการ Export</DialogTitle>
+        <DialogContent>
+          <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+            <Button size="small" variant="outlined" onClick={handleSelectAll}>
+              เลือกทั้งหมด
+            </Button>
+            <Button size="small" variant="outlined" onClick={handleDeselectAll}>
+              ยกเลิกทั้งหมด
+            </Button>
+          </Stack>
+          
+          <FormGroup>
+            {exportFields.map((field) => (
+              <FormControlLabel
+                key={field.key}
+                control={
+                  <Checkbox
+                    checked={field.enabled}
+                    onChange={() => handleToggleField(field.key)}
+                  />
+                }
+                label={field.label}
+              />
+            ))}
+          </FormGroup>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseExportDialog}>ยกเลิก</Button>
+          <Button onClick={handleExport} variant="contained" startIcon={<FileDownloadRoundedIcon />}>
+            Export ({exportFields.filter(f => f.enabled).length} ฟิลด์)
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
@@ -315,3 +500,4 @@ function KpiCard(props: { title: string; value: string; hint?: string }) {
 function fmt(n?: number | null) { if (n === null || n === undefined) return "—"; return Intl.NumberFormat().format(n); }
 function fmtPct(n?: number | null) { if (n === null || n === undefined) return "—"; return `${(n ?? 0).toFixed(1)}%`; }
 function fmtHours(n?: number | null) { if (n === null || n === undefined) return "—"; return `${(n ?? 0).toFixed(1)} hrs`; }
+

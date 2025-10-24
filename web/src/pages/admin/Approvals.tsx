@@ -25,13 +25,11 @@ import {
 } from "@mui/material";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
-import BugReportIcon from "@mui/icons-material/BugReport";
 
 // สิทธิ์/ตัวห่อ UI เดิม
 import useAuthzLive from "../../hooks/useAuthzLive";
 import { hasCap, isSuperadmin } from "../../lib/hasCap";
 import CapBlock from "../../components/CapBlock";
-import CapButton from "../../components/CapButton";
 
 // Firebase Auth (ดึง ID Token)
 import { getAuth } from "firebase/auth";
@@ -363,31 +361,7 @@ async function hydrateRowsWithDetails(
   return out;
 }
 
-// ---------- Export CSV ----------
-function exportCsv(filename: string, rows: PermitRow[]) {
-  const headers = ["RID", "ผู้ยื่น", "บริษัท", "ประเภทงาน", "สถานะ", "วันที่ยื่น", "วันที่อัปเดต"];
-  const esc = (x: any) => `"${String(x ?? "").replace(/"/g, '""')}"`;
-  const lines = [headers.join(",")];
-  for (const r of rows) {
-    lines.push(
-      [
-        esc(r.rid),
-        esc(r.requesterName ?? ""),
-        esc(r.company ?? ""),
-        esc(r.jobType ?? ""),
-        esc(r.status ?? ""),
-        esc(fmtDate(r.createdAt)),
-        esc(fmtDate(r.updatedAt)),
-      ].join(",")
-    );
-  }
-  const csvWithBom = "\uFEFF" + lines.join("\n");
-  const blob = new Blob([csvWithBom], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
-}
+
 
 function StatusChip({ value }: { value?: string }) {
   const val = normalizeStatus(value);
@@ -404,7 +378,6 @@ export default function Approvals() {
   const [loading, setLoading] = useState(true);
   const [hydrating, setHydrating] = useState(false);
   const [error, setError] = useState<string>("");
-  const [debugMode, setDebugMode] = useState(false);
 
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] =
@@ -418,11 +391,6 @@ export default function Approvals() {
     hasCap(live.caps, "review_requests", live.role) ||
     hasCap(live.caps, "view_permits", live.role) ||
     hasCap(live.caps, "view_all", live.role);
-  const canExport =
-    isSuperadmin(live.role) ||
-    live.pagePermissions?.approvals?.canExport === true ||
-    hasCap(live.caps, "export", live.role) ||
-    hasCap(live.caps, "view_reports", live.role);
 
   const aliveRef = useRef(false);
   useEffect(() => { aliveRef.current = true; return () => { aliveRef.current = false; }; }, []);
@@ -539,19 +507,6 @@ export default function Approvals() {
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
         <Box><Typography variant="h6" fontWeight={800}>Approvals (รออนุมัติ)</Typography></Box>
         <Stack direction="row" spacing={1}>
-          {isSuper && (
-            <IconButton size="small" onClick={() => setDebugMode(!debugMode)} color={debugMode ? "primary" : "default"}>
-              <BugReportIcon />
-            </IconButton>
-          )}
-          <CapButton
-            anyOf={["export", "view_reports"]}
-            variant="outlined" size="small"
-            onClick={() => exportCsv(`approvals_${new Date().toISOString().slice(0, 10)}.csv`, filtered)}
-            disabled={!canExport}
-          >
-            Export CSV
-          </CapButton>
           <Button variant="contained" size="small" onClick={() => { const ac = new AbortController(); load(ac.signal); }}>
             Refresh
           </Button>
@@ -562,20 +517,7 @@ export default function Approvals() {
         anyOf={["approve_requests", "review_requests", "view_permits", "view_all"]}
         deniedText="คุณไม่มีสิทธิ์ดูรายการคำขอ (ต้องมีสิทธิ์ approve/review หรือ view_permits)"
       >
-        {debugMode && isSuper && (
-          <Alert severity="info" sx={{ mb: 2 }}>
-            <Typography variant="caption" component="div">
-              📊 <strong>Debug Info:</strong><br />
-              • Total Rows: {rows.length}<br />
-              • Filtered: {filtered.length}<br />
-              • Counts: P:{counts.pending} A:{counts.approved} R:{counts.rejected}<br />
-              • Status Filter: {statusFilter}<br />
-              • List URL source: .env {IS_DEV ? "(DEV: อนุญาต LS เทส)" : "(PROD: ไม่ใช้ LS)"}<br />
-              • Requester Email: {getRequesterEmail() ? "✅" : "⚠️"}<br />
-              • Search: "{q}"
-            </Typography>
-          </Alert>
-        )}
+
 
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
           <Stack direction={{ xs: "column", sm: "row" }} gap={1} alignItems={{ xs: "stretch", sm: "center" }}>
