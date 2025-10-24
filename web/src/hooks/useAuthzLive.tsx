@@ -29,6 +29,12 @@ type State = {
   pagePermissions?: PagePermissions;
 };
 
+type AuthState = {
+  role: string | null;
+  caps: Set<string>;
+  pagePermissions?: PagePermissions;
+};
+
 const LIST_URL = import.meta.env.VITE_LIST_ADMINS_URL as string | undefined;
 const APPROVER_KEY = import.meta.env.VITE_APPROVER_KEY as string | undefined;
 
@@ -142,7 +148,7 @@ function mergeMyRecords(all: AdminRecord[], myEmailLower: string) {
 }
 
 // ---------------- New path: อ่านจาก Firebase ID Token (custom claims) ----------------
-async function loadFromIdToken(user: any): Promise<{ role: string | null; caps: Set<string> } | null> {
+async function loadFromIdToken(user: any): Promise<AuthState | null> {
   if (!user) return null;
   // force refresh = true เพื่อให้รับ claims ล่าสุดหลังมีการ set
   const tokenResult = await user.getIdTokenResult(true);
@@ -240,13 +246,13 @@ export default function useAuthzLive(): State {
           try {
             const all = await fetchAdminsWithAuth(user, email);
             const merged = mergeMyRecords(all, emailLower);
-            if (merged) fromToken = { role: merged.role ?? null, caps: merged.caps ?? new Set(), pagePermissions: merged.pagePermissions };
+            if (merged) fromToken = { role: merged.role ?? null, caps: merged.caps ?? new Set(), pagePermissions: merged.pagePermissions } as AuthState;
           } catch {
             // 3) ถ้ายังไม่ได้ → fallback แบบ legacy ชั่วคราวช่วงย้ายระบบ
             try {
               const all2 = await fetchAdminsLegacy(email);
               const merged2 = mergeMyRecords(all2, emailLower);
-              if (merged2) fromToken = { role: merged2.role ?? null, caps: merged2.caps ?? new Set(), pagePermissions: merged2.pagePermissions };
+              if (merged2) fromToken = { role: merged2.role ?? null, caps: merged2.caps ?? new Set(), pagePermissions: merged2.pagePermissions } as AuthState;
             } catch {}
           }
         }
