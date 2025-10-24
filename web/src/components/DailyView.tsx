@@ -1,12 +1,13 @@
 // ======================================================================
 // File: web/src/components/DailyView.tsx
-// Purpose: แสดงงานประจำวันในรูปแบบ 3 คอลัมน์ (Kanban)
-// Updated: 2025-10-22 (A3: ต่อ Quick View Drawer แบบอ่านเร็ว)
-// Changes (A3):
-//  - ครอบลิสต์ทั้งหมดด้วย QuickViewConnector เพื่อเปิด Drawer ได้เมื่อคลิกการ์ด
-//  - เพิ่มตัวช่วย map สถานะ: "scheduled" | "checked-in" | "checked-out" → "scheduled" | "in" | "out"
-//  - เพิ่มฟังก์ชันประกอบ payload สำหรับ Quick View (rid, contractor, area, schedule, notes, meta)
-//  - ทำให้การ์ดคลิก/กด Enter/Space เปิด Quick View ได้ และกันปุ่มเช็คอิน/เอาต์ไม่ให้เปิด Drawer ผิดจังหวะ
+// Purpose: แสดงงานประจำวันแบบ 3 คอลัมน์ พร้อม "Quick View" รายละเอียดจริง
+// Updated: 2025-10-23
+//
+// เปลี่ยนสำคัญ:
+// - เลิกใช้ QuickViewConnector (ลิ้นชักสรุปย่อ) -> เปลี่ยนเป็น JobQuickViewProvider
+// - เวลา "คลิกการ์ด" จะเรียก openJob({ rid, ... }) เพื่อเปิดลิ้นชักตัวใหม่
+//   ที่จะไปโหลดข้อมูลจริงจากปลายทางเดียวกับ PermitDetails และแสดง 3 กล่อง
+// - ไม่แตะส่วนเช็คอิน/เอาต์เดิม (Modal เดิมทำงานเหมือนเดิม)
 // ======================================================================
 
 import { useState, useEffect } from "react";
@@ -24,33 +25,28 @@ import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 import PersonIcon from "@mui/icons-material/Person";
 
-// ★ นำเข้า Modals
+// โมดัลเช็คอิน/เอาต์ (คงเดิม)
 import CheckInModal from "./CheckInModal";
 import CheckOutModal from "./CheckOutModal";
 
-// ★ นำเข้า Services และ Types
+// Service เดิม (คงเดิม)
 import {
   getDailyWorkByDate,
   checkInRequest,
   checkOutRequest,
-  formatTimestamp, // จะหุ้มด้วย safeFormatTimestamp เพื่อเลี่ยง TS2345
+  formatTimestamp,
 } from "../services/dailyOperationsService";
 import type { DailyViewProps } from "../types/dailywork.types";
 import type { DailyWorkItem } from "../types/index";
 
-// ★ นำเข้า Quick View Connector (ทางใกล้)
-import QuickViewConnector from "./QuickViewConnector";
-import type { PermitLike } from "./QuickViewConnector";
+// ★★ ใหม่: ใช้ Provider/Hook ของลิ้นชักตัวใหม่
+import JobQuickViewProvider, { useJobQuickView, type JobLite } from "./JobQuickViewProvider";
 
-// ---------- ตัวช่วยเล็ก ๆ เพื่อกัน TypeScript ชนกับ formatTimestamp ----------
-function safeFormatTimestamp(
-  v: any // รองรับ string | Date | { _seconds: number; _nanoseconds: number }
-): string {
+// ---------- ตัวช่วยเล็ก ๆ ----------
+function safeFormatTimestamp(v: any): string {
   try {
-    // ถ้า service รับ union อยู่แล้วก็จะโอเค
     return formatTimestamp(v as any);
   } catch {
-    // กันไว้กรณีประกาศใน service รับเฉพาะ Firestore TS
     if (typeof v === "string") {
       const d = new Date(v);
       return isNaN(d.getTime()) ? v : d.toLocaleString();
@@ -66,7 +62,6 @@ function safeFormatTimestamp(
 // ---------- แปลง WorkItem → DailyWorkItem ให้เข้ารูป ----------
 function normalize(item: any): DailyWorkItem {
   return {
-    // ฟิลด์หลักที่ UI ใช้
     rid: item.rid ?? item.id ?? "",
     contractorName: item.contractorName ?? item.contractor?.name ?? "-",
     permitType: item.permitType ?? item.type ?? "-",
@@ -75,13 +70,11 @@ function normalize(item: any): DailyWorkItem {
     endTime: item.endTime ?? item.scheduledEndAt ?? "",
     dailyStatus: item.dailyStatus ?? item.status ?? "scheduled",
 
-    // ข้อมูลเช็คอิน/เอาท์ (รองรับหลายชื่อฟิลด์)
     checkedInAt: item.checkedInAt ?? item.checkInAt ?? item.checked_in_at ?? undefined,
     checkedOutAt: item.checkedOutAt ?? item.checkOutAt ?? item.checked_out_at ?? undefined,
     checkInNotes: item.checkInNotes ?? item.notesIn ?? item.check_in_notes ?? undefined,
     checkOutNotes: item.checkOutNotes ?? item.notesOut ?? item.check_out_notes ?? undefined,
 
-    // ฟิลด์เสริมที่ใน type เดิมอาจเป็น required — ทำให้มีค่าสำรองไว้
     workDate: item.workDate ?? item.date ?? undefined,
     status: item.status ?? undefined,
     createdAt: item.createdAt ?? undefined,
@@ -89,13 +82,11 @@ function normalize(item: any): DailyWorkItem {
   } as DailyWorkItem;
 }
 
-// ---------- ตัวช่วยสำหรับ Quick View ----------
+// ฟอร์แมตวันที่ไทยแบบย่อ
 function formatThaiDate(d: Date): string {
-  // แสดงแบบสั้น อ่านเร็ว เช่น "22 ต.ค. 2568"
   try {
     return d.toLocaleDateString("th-TH", { day: "2-digit", month: "short", year: "numeric" });
   } catch {
-    // เผื่อเครื่องไม่มี locale นี้
     const dd = String(d.getDate()).padStart(2, "0");
     const mm = String(d.getMonth() + 1).padStart(2, "0");
     const yyyy = d.getFullYear() + 543;
@@ -106,23 +97,48 @@ function formatThaiDate(d: Date): string {
 function mapDailyStatusToQuickView(s: string): string {
   if (s === "checked-in") return "in";
   if (s === "checked-out") return "out";
-  return s; // "scheduled" คงเดิม
+  return s; // "scheduled"
 }
 
-export default function DailyView({ date, onCheckIn, onCheckOut }: DailyViewProps) {
-  // ========== State Management ==========
+// ---------- แปลง DailyWorkItem → JobLite สำหรับ openJob ----------
+function toJobLite(item: DailyWorkItem, date: Date): JobLite {
+  const status = mapDailyStatusToQuickView(item.dailyStatus);
 
+  // รวมเวลาไว้ในรูป "HH:MM–HH:MM" เพื่อแสดงหัวลิ้นชัก (ข้อมูลละเอียดจะโหลดเพิ่มเอง)
+  const timeRangeText =
+    item.startTime && item.endTime
+      ? `${item.startTime}–${item.endTime}`
+      : item.startTime
+      ? `${item.startTime}–`
+      : item.endTime
+      ? `–${item.endTime}`
+      : undefined;
+
+  return {
+    rid: item.rid,                             // อย่างน้อยต้องมี rid
+    title: item.contractorName || "รายละเอียดใบงาน",
+    contractor: item.contractorName,
+    area: item.area,
+    timeRangeText,
+    // สถานะปัจจุบัน (ช่วยให้ลิ้นชักสลับข้อความได้ถูก)
+    isIn: status === "in",
+  };
+}
+
+// ======================================================================
+// คอมโพเนนต์หลัก
+// ======================================================================
+export default function DailyView({ date, onCheckIn, onCheckOut }: DailyViewProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [works, setWorks] = useState<DailyWorkItem[]>([]);
 
-  // Modal states
+  // สถานะของโมดัลเช็คอิน/เอาต์ (คงเดิม)
   const [checkInOpen, setCheckInOpen] = useState(false);
   const [checkOutOpen, setCheckOutOpen] = useState(false);
   const [selectedWork, setSelectedWork] = useState<DailyWorkItem | null>(null);
 
-  // ========== Load Data ==========
-
+  // โหลดข้อมูลเมื่อวันที่เปลี่ยน
   useEffect(() => {
     loadWorks();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -133,12 +149,9 @@ export default function DailyView({ date, onCheckIn, onCheckOut }: DailyViewProp
     setError(null);
 
     try {
-      // ✅ เรียก API จริง - แปลงวันที่เป็น format YYYY-MM-DD
-      const dateStr = date.toISOString().split("T")[0]; // "2025-10-13"
-
+      const dateStr = date.toISOString().split("T")[0];
       const result = await getDailyWorkByDate(dateStr);
 
-      // รวมข้อมูลทั้ง 3 กลุ่ม แล้ว normalize ให้เป็น DailyWorkItem แน่นอน
       const allWorks: DailyWorkItem[] = [
         ...result.scheduled.map(normalize),
         ...result.checkedIn.map(normalize),
@@ -146,7 +159,6 @@ export default function DailyView({ date, onCheckIn, onCheckOut }: DailyViewProp
       ];
 
       setWorks(allWorks);
-
       console.log(`📅 โหลดข้อมูลวันที่ ${dateStr} สำเร็จ:`, {
         scheduled: result.scheduled.length,
         checkedIn: result.checkedIn.length,
@@ -161,8 +173,7 @@ export default function DailyView({ date, onCheckIn, onCheckOut }: DailyViewProp
     }
   }
 
-  // ========== Modal Handlers ==========
-
+  // เปิดโมดัลเช็คอิน/เอาต์ (คงเดิม)
   const handleCheckInClick = (rid: string) => {
     const work = works.find((w) => w.rid === rid);
     if (work) {
@@ -170,13 +181,9 @@ export default function DailyView({ date, onCheckIn, onCheckOut }: DailyViewProp
       setCheckInOpen(true);
     }
   };
-
   const handleCheckInConfirm = async (rid: string, notes: string) => {
-    console.log("✅ Check In Request:", { rid, notes, timestamp: new Date().toISOString() });
-
     try {
       await checkInRequest(rid, notes);
-      console.log("✅ เช็คอินสำเร็จ");
       await loadWorks();
       setCheckInOpen(false);
       setSelectedWork(null);
@@ -194,13 +201,9 @@ export default function DailyView({ date, onCheckIn, onCheckOut }: DailyViewProp
       setCheckOutOpen(true);
     }
   };
-
   const handleCheckOutConfirm = async (rid: string, notes: string) => {
-    console.log("🚪 Check Out Request:", { rid, notes, timestamp: new Date().toISOString() });
-
     try {
       await checkOutRequest(rid, notes);
-      console.log("✅ เช็คเอาท์สำเร็จ");
       await loadWorks();
       setCheckOutOpen(false);
       setSelectedWork(null);
@@ -211,13 +214,9 @@ export default function DailyView({ date, onCheckIn, onCheckOut }: DailyViewProp
     }
   };
 
-  // ========== Filter by Status ==========
-
   const scheduled = works.filter((w) => w.dailyStatus === "scheduled");
   const checkedIn = works.filter((w) => w.dailyStatus === "checked-in");
   const checkedOut = works.filter((w) => w.dailyStatus === "checked-out");
-
-  // ========== Loading & Error States ==========
 
   if (loading) {
     return (
@@ -235,86 +234,25 @@ export default function DailyView({ date, onCheckIn, onCheckOut }: DailyViewProp
     );
   }
 
-  // ---------- ฟังก์ชันประกอบ payload สำหรับ Quick View ----------
-  const buildPermitPayload = (item: DailyWorkItem): PermitLike => {
-    const status = mapDailyStatusToQuickView(item.dailyStatus);
-    // หมายเหตุ: ถ้าอยากให้แสดงหมายเหตุเลือกตามสถานะ
-    const notes =
-      status === "in" ? item.checkInNotes :
-      status === "out" ? item.checkOutNotes :
-      undefined;
-
-    return {
-      rid: item.rid,
-      title: item.contractorName || "รายละเอียดใบงาน",
-      contractorName: item.contractorName,
-      location: item.area,
-      schedule: {
-        dateText: formatThaiDate(date),
-        startTime: item.startTime,
-        endTime: item.endTime,
-      },
-      status,
-      // counts: (ถ้าภายหลังมี plan/checkedIn/checkedOut จะส่งเพิ่มได้)
-      meta: {
-        "ประเภทงาน": item.permitType ?? "-",
-      },
-      notes,
-    };
-  };
-
-  // ========== Render ==========
-
+  // ---------- ส่วนแสดงผล พร้อม "ลิ้นชักใหม่" ----------
+  // ใช้ Provider ครอบ แล้วใช้ hook เปิดลิ้นชักจากการ์ด
   return (
     <>
-      {/* ครอบลิสต์ทั้งหมดด้วย QuickViewConnector เพื่อให้เรียก open(...) ได้ */}
-      <QuickViewConnector>
-        {({ open }) => (
-          <Grid container spacing={2}>
-            {/* Column 1: จะเข้า */}
-            <Grid size={{ xs: 12, md: 4 }}>
-              <WorkColumn
-                title="🟠 จะเข้า"
-                count={scheduled.length}
-                color="#ff9800"
-                items={scheduled}
-                actionLabel="เช็คอิน"
-                onAction={handleCheckInClick}
-                onOpen={(item) => open(buildPermitPayload(item))}
-              />
-            </Grid>
+      <JobQuickViewProvider
+        // ไม่ส่ง onCheckIn/onCheckOut ลงไป เพื่อให้ลิ้นชักเป็นโหมด "อ่านอย่างเดียว"
+        // ปุ่มเช็คอิน/เอาต์ของหน้านี้ยังคงใช้โมดัลเดิมด้านล่าง
+      >
+        <JobsGridWithQuickView
+          date={date}
+          scheduled={scheduled}
+          checkedIn={checkedIn}
+          checkedOut={checkedOut}
+          onActionCheckIn={handleCheckInClick}
+          onActionCheckOut={handleCheckOutClick}
+        />
+      </JobQuickViewProvider>
 
-            {/* Column 2: เข้าแล้ว */}
-            <Grid size={{ xs: 12, md: 4 }}>
-              <WorkColumn
-                title="🟢 เข้าแล้ว"
-                count={checkedIn.length}
-                color="#4caf50"
-                items={checkedIn}
-                actionLabel="เช็คเอาท์"
-                onAction={handleCheckOutClick}
-                onOpen={(item) => open(buildPermitPayload(item))}
-              />
-            </Grid>
-
-            {/* Column 3: ออกแล้ว */}
-            <Grid size={{ xs: 12, md: 4 }}>
-              <WorkColumn
-                title="🔵 ออกแล้ว"
-                count={checkedOut.length}
-                color="#2196f3"
-                items={checkedOut}
-                actionLabel={null}
-                onAction={undefined}
-                onOpen={(item) => open(buildPermitPayload(item))}
-              />
-            </Grid>
-          </Grid>
-        )}
-      </QuickViewConnector>
-
-      {/* ========== Modals ========== */}
-
+      {/* ========== Modals (คงเดิม) ========== */}
       <CheckInModal
         open={checkInOpen}
         work={selectedWork}
@@ -338,8 +276,73 @@ export default function DailyView({ date, onCheckIn, onCheckOut }: DailyViewProp
   );
 }
 
-// ========== Sub-Components ==========
+// ======================================================================
+// ส่วนย่อย: เรนเดอร์ 3 คอลัมน์ และเรียก openJob เมื่อคลิกการ์ด
+// ======================================================================
+function JobsGridWithQuickView(props: {
+  date: Date;
+  scheduled: DailyWorkItem[];
+  checkedIn: DailyWorkItem[];
+  checkedOut: DailyWorkItem[];
+  onActionCheckIn: (rid: string) => void;
+  onActionCheckOut: (rid: string) => void;
+}) {
+  const { date, scheduled, checkedIn, checkedOut, onActionCheckIn, onActionCheckOut } = props;
 
+  // ★ ได้ตัวช่วยจาก Provider เพื่อเปิดลิ้นชักใหม่
+  const { openJob } = useJobQuickView();
+
+  const handleOpen = (item: DailyWorkItem) => {
+    // ส่งอย่างน้อย rid; ที่เหลือเป็นข้อมูลย่อช่วยหัวลิ้นชักอ่านง่าย
+    const jl = toJobLite(item, date);
+    openJob(jl);
+  };
+
+  return (
+    <Grid container spacing={2}>
+      {/* Column 1: จะเข้า */}
+      <Grid size={{ xs: 12, md: 4 }}>
+        <WorkColumn
+          title="🟠 จะเข้า"
+          count={scheduled.length}
+          color="#ff9800"
+          items={scheduled}
+          actionLabel="เช็คอิน"
+          onAction={onActionCheckIn}
+          onOpen={handleOpen}
+        />
+      </Grid>
+
+      {/* Column 2: เข้าแล้ว */}
+      <Grid size={{ xs: 12, md: 4 }}>
+        <WorkColumn
+          title="🟢 เข้าแล้ว"
+          count={checkedIn.length}
+          color="#4caf50"
+          items={checkedIn}
+          actionLabel="เช็คเอาท์"
+          onAction={onActionCheckOut}
+          onOpen={handleOpen}
+        />
+      </Grid>
+
+      {/* Column 3: ออกแล้ว */}
+      <Grid size={{ xs: 12, md: 4 }}>
+        <WorkColumn
+          title="🔵 ออกแล้ว"
+          count={checkedOut.length}
+          color="#2196f3"
+          items={checkedOut}
+          actionLabel={null}
+          onAction={undefined}
+          onOpen={handleOpen}
+        />
+      </Grid>
+    </Grid>
+  );
+}
+
+// ---------- ส่วนประกอบย่อย (คงเดิมเป็นหลัก) ----------
 interface WorkColumnProps {
   title: string;
   count: number;
@@ -347,7 +350,7 @@ interface WorkColumnProps {
   items: DailyWorkItem[];
   actionLabel: string | null;
   onAction?: (rid: string) => void;
-  onOpen: (item: DailyWorkItem) => void; // 🆕 เปิด Quick View
+  onOpen: (item: DailyWorkItem) => void; // คลิกการ์ด -> เปิดลิ้นชักใหม่
 }
 
 function WorkColumn({ title, count, color, items, actionLabel, onAction, onOpen }: WorkColumnProps) {
@@ -374,7 +377,7 @@ function WorkColumn({ title, count, color, items, actionLabel, onAction, onOpen 
               item={item}
               actionLabel={actionLabel}
               onAction={onAction}
-              onOpen={onOpen} // 🆕
+              onOpen={onOpen}
             />
           ))
         )}
@@ -387,7 +390,7 @@ interface WorkCardProps {
   item: DailyWorkItem;
   actionLabel: string | null;
   onAction?: (rid: string) => void;
-  onOpen: (item: DailyWorkItem) => void; // 🆕
+  onOpen: (item: DailyWorkItem) => void;
 }
 
 function WorkCard({ item, actionLabel, onAction, onOpen }: WorkCardProps) {
@@ -404,7 +407,7 @@ function WorkCard({ item, actionLabel, onAction, onOpen }: WorkCardProps) {
     }
   };
 
-  // เปิด Quick View เมื่อคลิกการ์ด หรือกด Enter/Space
+  // คลิกการ์ด / กดคีย์ -> เปิดลิ้นชักรายละเอียดจริง
   const handleOpen = () => onOpen(item);
   const handleKeyDown: React.KeyboardEventHandler<HTMLDivElement> = (e) => {
     if (e.key === "Enter" || e.key === " ") {
@@ -416,8 +419,8 @@ function WorkCard({ item, actionLabel, onAction, onOpen }: WorkCardProps) {
   return (
     <Paper
       elevation={2}
-      onClick={handleOpen} // 🆕 คลิกเพื่อเปิด Quick View
-      onKeyDown={handleKeyDown} // 🆕 รองรับคีย์บอร์ด
+      onClick={handleOpen}
+      onKeyDown={handleKeyDown}
       role="button"
       tabIndex={0}
       sx={{
@@ -426,7 +429,7 @@ function WorkCard({ item, actionLabel, onAction, onOpen }: WorkCardProps) {
         borderLeft: 4,
         borderColor: getBorderColor(),
         transition: "transform 0.2s, box-shadow 0.2s",
-        cursor: "pointer", // 🆕 สื่อว่าคลิกได้
+        cursor: "pointer",
         "&:hover": {
           transform: "translateY(-2px)",
           boxShadow: 4,
@@ -465,7 +468,7 @@ function WorkCard({ item, actionLabel, onAction, onOpen }: WorkCardProps) {
         {item.startTime} - {item.endTime}
       </Typography>
 
-      {/* 🆕 แสดงเวลาเช็คอิน (ถ้ามี) */}
+      {/* แสดงเวลาเช็คอิน/เอาต์ถ้ามี */}
       {item.checkedInAt && (
         <Box sx={{ mt: 1, p: 1, bgcolor: "#e8f5e9", borderRadius: 1 }}>
           <Typography variant="caption" color="success.dark" sx={{ display: "block" }}>
@@ -479,7 +482,6 @@ function WorkCard({ item, actionLabel, onAction, onOpen }: WorkCardProps) {
         </Box>
       )}
 
-      {/* 🆕 แสดงเวลาเช็คเอาท์ (ถ้ามี) */}
       {item.checkedOutAt && (
         <Box sx={{ mt: 1, p: 1, bgcolor: "#e3f2fd", borderRadius: 1 }}>
           <Typography variant="caption" color="primary.dark" sx={{ display: "block" }}>
@@ -493,7 +495,7 @@ function WorkCard({ item, actionLabel, onAction, onOpen }: WorkCardProps) {
         </Box>
       )}
 
-      {/* Action Button */}
+      {/* ปุ่มเช็คอิน/เอาต์ ของหน้าหลัก (กันเปิดลิ้นชักซ้อน) */}
       {actionLabel && onAction && (
         <Button
           variant="contained"
@@ -501,7 +503,7 @@ function WorkCard({ item, actionLabel, onAction, onOpen }: WorkCardProps) {
           fullWidth
           sx={{ mt: 2 }}
           onClick={(e) => {
-            e.stopPropagation(); // 🆕 กดปุ่มแล้วไม่ให้เปิด Quick View
+            e.stopPropagation(); // กดปุ่มแล้วไม่ให้เปิดลิ้นชัก
             onAction(item.rid);
           }}
         >
