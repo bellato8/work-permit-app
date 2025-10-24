@@ -1,18 +1,23 @@
 // ======================================================================
 // File: functions/src/getCalendarView.ts
-// เวอร์ชัน: 2025-10-13 (Task 20 - FIXED)
+// เวอร์ชัน: 2025-10-24 (AuthZ-integrated - FIXED insufficient_permissions)
 // หน้าที่: Query งานในเดือนที่ระบุ และนับจำนวนงานแต่ละวัน แยกตาม dailyStatus
 //
 // 🔧 การแก้ไข:
-//   - แก้ query จาก startDate → ดึงข้อมูลทั้งหมดแล้ว filter ด้วย work.from
-//   - รองรับ status ทั้ง "approved" และ "อนุมัติ"
-//   - Group และนับจำนวนด้วย JavaScript
+//   - ✅ ใช้ authz.ts (requireFirebaseUser + canViewDailyOps) แทนการเช็คสิทธิ์เอง
+//   - ✅ รองรับ fallback จาก pagePermissions → caps เหมือน getDailyWorkByDate
+//   - ✅ แก้ query จาก startDate → ดึงข้อมูลทั้งหมดแล้ว filter ด้วย work.from
+//   - ✅ รองรับ status ทั้ง "approved" และ "อนุมัติ"
+//   - ✅ Group และนับจำนวนด้วย JavaScript
 // ======================================================================
 
 import { onRequest } from "firebase-functions/v2/https";
 import { getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
-import { getAuth } from "firebase-admin/auth";
+import * as logger from "firebase-functions/logger";
+
+// ✅ ใช้ด่านกลางจาก authz.ts เหมือน getDailyWorkByDate
+import { requireFirebaseUser, canViewDailyOps, readAdminDoc } from "./authz";
 
 if (!getApps().length) initializeApp();
 const db = getFirestore();
@@ -23,50 +28,6 @@ function setCORS(res: any) {
   res.set("Access-Control-Allow-Origin", "*");
   res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-}
-
-// ==================== ตรวจสอบสิทธิ์ ====================
-async function checkPermissions(req: any): Promise<{
-  ok: boolean;
-  error?: string;
-  uid?: string;
-  email?: string;
-}> {
-  const authHeader = req.get("Authorization") || "";
-  const match = authHeader.match(/^Bearer\s+(.+)$/i);
-  
-  if (!match) {
-    return { ok: false, error: "missing_token" };
-  }
-
-  try {
-    const token = match[1];
-    const decoded = await getAuth().verifyIdToken(token);
-    const email = decoded.email?.toLowerCase();
-    
-    if (!email) {
-      return { ok: false, error: "invalid_email" };
-    }
-
-    // เช็คว่ามีสิทธิ์ viewOtherDaysWork (ต้องมีถึงจะดูปฏิทินได้)
-    const adminDoc = await db.collection("admins").doc(email).get();
-    
-    if (!adminDoc.exists) {
-      return { ok: false, error: "not_admin" };
-    }
-
-    const adminData = adminDoc.data();
-    const permissions = adminData?.permissions || {};
-    
-    if (!permissions.viewOtherDaysWork) {
-      return { ok: false, error: "insufficient_permissions" };
-    }
-
-    return { ok: true, uid: decoded.uid, email };
-  } catch (e: any) {
-    console.error("[checkPermissions] Error:", e);
-    return { ok: false, error: "invalid_token" };
-  }
 }
 
 // ==================== Helper: สร้างรายการวันในเดือน ====================
@@ -131,10 +92,10 @@ export const getCalendarView = onRequest(
     }
 
     try {
-      // ========== ตรวจสอบสิทธิ์ ==========
-      const auth = await checkPermissions(req);
-      if (!auth.ok) {
-        res.status(403).json({ ok: false, error: auth.error });
+      // ========== ✅ ใช้ authz.ts แทนการเช็คเอง ==========
+      const who = await requireFirebaseUser(req);
+      if (!who.ok) {
+        res.status(who.status).json({ ok: false, error: who.error });
         return;
       }
 
@@ -159,9 +120,21 @@ export const getCalendarView = onRequest(
         return;
       }
 
+      // ========== ✅ ตรวจสิทธิ์ด้วย canViewDailyOps (รองรับ fallback) ==========
+      // เช็คสิทธิ์ดูปฏิทิน (ใช้วันแรกของเดือนเป็นตัวอ้างอิง)
+      const firstDayOfMonth = `${year}-${String(month).padStart(2, "0")}-01`;
+      const adminDoc = (await readAdminDoc(who.email)) || (who as any);
+      
+      if (!canViewDailyOps(adminDoc, firstDayOfMonth)) {
+        res.status(403).json({ ok: false, error: "insufficient_permissions" });
+        return;
+      }
+
       // ========== สร้างรายการวันในเดือน ==========
       const days = getDaysInMonth(year, month - 1); // month - 1 เพราะ JS Date เริ่มที่ 0
-      console.log(`[getCalendarView] Getting data for ${year}-${String(month).padStart(2, "0")}`);
+      logger.info(`[getCalendarView] Getting data for ${year}-${String(month).padStart(2, "0")}`, {
+        email: who.email,
+      });
 
       // ========== Query งานทั้งหมด (รองรับ status ทั้ง 2 ภาษา) ==========
       const approvedStatuses = ["approved", "อนุมัติ"];
@@ -186,7 +159,9 @@ export const getCalendarView = onRequest(
         });
       }
 
-      console.log(`[getCalendarView] Found ${allRequests.length} requests for ${year}-${month}`);
+      logger.info(`[getCalendarView] Found ${allRequests.length} requests for ${year}-${month}`, {
+        email: who.email,
+      });
 
       // ========== นับจำนวนแต่ละวัน แยกตาม dailyStatus ==========
       const dateCounts: Record<string, {
@@ -241,7 +216,7 @@ export const getCalendarView = onRequest(
       return;
 
     } catch (e: any) {
-      console.error("[getCalendarView] Error:", e);
+      logger.error("[getCalendarView] Error", { message: e?.message || String(e) });
       res.status(500).json({ 
         ok: false, 
         error: "internal_error",
@@ -251,3 +226,4 @@ export const getCalendarView = onRequest(
     }
   }
 );
+
