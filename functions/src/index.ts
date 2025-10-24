@@ -8,13 +8,6 @@
 // https://firebase.google.com/docs/functions/typescript
 // ======================================================================
 
-import * as admin from "firebase-admin";
-
-// Initialize Firebase Admin SDK
-if (!admin.apps.length) {
-  admin.initializeApp();
-}
-
 // ==================== Admin Management ====================
 export {
   listadmins,
