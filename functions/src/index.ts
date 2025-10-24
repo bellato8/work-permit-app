@@ -37,9 +37,13 @@ export { proxyListRequests } from "./proxyListRequests";
 export { listLogs } from "./listLogs";
 export { deleteLogs } from "./deleteLogs";
 
+// ==================== Cleanup (Superadmin Only) ====================
+export { deleteRequestCascade, cleanupDeleteLogs } from "./cleanup";
+
 // ==================== Auth ====================
 export { logAuth } from "./logAuth";
 export { inviteAdmin } from "./inviteAdmin";
+export { applyRolesOnSignIn } from "./auth/beforeSignIn";
 
 // ==================== Triggers ====================
 export { onRequestCreated } from "./onRequestCreated";
