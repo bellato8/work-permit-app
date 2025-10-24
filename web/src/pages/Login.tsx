@@ -283,6 +283,11 @@ export default function Login() {
               ลืมรหัสผ่าน?
             </button>
           </footer>
+
+          {/* Version number */}
+          <div style={{ position: "absolute", bottom: "16px", right: "16px", fontSize: "0.75rem", color: "rgba(255,255,255,0.4)" }}>
+            v1.0.0
+          </div>
         </div>
       </main>
 
