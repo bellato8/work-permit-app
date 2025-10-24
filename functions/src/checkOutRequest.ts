@@ -15,6 +15,30 @@ const db = getFirestore();
 
 const REGION = "asia-southeast1";
 
+/**
+ * ข้อมูล Admin จาก Firestore
+ */
+interface AdminData {
+  name?: string;
+  email?: string;
+  role?: string;
+  permissions?: {
+    checkInOut?: boolean;
+    approval?: boolean;
+    viewAll?: boolean;
+  };
+  pagePermissions?: {
+    dailyWork?: {
+      canView?: boolean;
+      canViewOtherDays?: boolean;
+      canCheckInOut?: boolean;
+    };
+    [key: string]: any;
+  };
+  createdAt?: any;
+  updatedAt?: any;
+}
+
 // ==================== CORS ====================
 function setCORS(res: any) {
   res.set("Access-Control-Allow-Origin", "*");
@@ -53,7 +77,7 @@ async function checkPermissions(req: any): Promise<{
       return { ok: false, error: "not_admin" };
     }
 
-    const adminData = adminDoc.data();
+    const adminData = adminDoc.data() as AdminData | undefined;
     const hasPermission = 
       adminData?.role === "superadmin" ||
       adminData?.pagePermissions?.dailyWork?.canCheckInOut === true ||

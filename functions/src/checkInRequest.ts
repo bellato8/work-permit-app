@@ -36,10 +36,19 @@ interface DecodedToken {
 interface AdminData {
   name: string;
   email: string;
-  permissions: {
+  role?: string;
+  permissions?: {
     checkInOut?: boolean;
     approval?: boolean;
     viewAll?: boolean;
+  };
+  pagePermissions?: {
+    dailyWork?: {
+      canView?: boolean;
+      canViewOtherDays?: boolean;
+      canCheckInOut?: boolean;
+    };
+    [key: string]: any;
   };
   createdAt?: any;
   updatedAt?: any;
