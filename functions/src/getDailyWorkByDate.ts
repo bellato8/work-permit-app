@@ -51,7 +51,7 @@ async function checkPermissions(req: any): Promise<{
       return { ok: false, error: "invalid_email" };
     }
 
-    // เช็คว่ามีสิทธิ์ viewTodayWork หรือ viewOtherDaysWork
+    // ดึงข้อมูล Admin จาก Firestore
     const adminDoc = await db.collection("admins").doc(email).get();
     
     if (!adminDoc.exists) {
@@ -59,9 +59,10 @@ async function checkPermissions(req: any): Promise<{
     }
 
     const adminData = adminDoc.data();
-    const permissions = adminData?.permissions || {};
+    // ใช้ pagePermissions.dailyWork.canView ในการตรวจสอบสิทธิ์
+    const canViewDailyWork = adminData?.pagePermissions?.dailyWork?.canView;
     
-    if (!permissions.viewTodayWork && !permissions.viewOtherDaysWork) {
+    if (!canViewDailyWork) {
       return { ok: false, error: "insufficient_permissions" };
     }
 
@@ -135,7 +136,8 @@ export const getDailyWorkByDate = onRequest(
       // ========== ตรวจสอบสิทธิ์ดูวันอื่น ==========
       const adminDoc = await db.collection("admins").doc(auth.email!).get();
       const adminData = adminDoc.data();
-      const canViewOtherDays = adminData?.permissions?.viewOtherDaysWork || false;
+      // ใช้ pagePermissions.dailyWork.canViewOtherDays ในการตรวจสอบสิทธิ์
+      const canViewOtherDays = adminData?.pagePermissions?.dailyWork?.canViewOtherDays || false;
 
       // ถ้าไม่มีสิทธิ์ viewOtherDaysWork ให้ดูได้แค่วันนี้
       const today = new Date().toISOString().split("T")[0]; // "2025-10-13"
