@@ -1,6 +1,7 @@
 // ======================================================================
 // File: functions/src/getDailyWorkByDate.ts
 // เวอร์ชัน: 2025-10-24 (AuthZ-integrated, timezone-safe)
+// Last updated: 2025-10-24 09:15 UTC+7 - Force deploy to fix insufficient_permissions
 // หน้าที่: ดึงข้อมูลงานทั้งหมดในวันที่เลือก แยกตาม dailyStatus
 // Region: asia-southeast1
 //
