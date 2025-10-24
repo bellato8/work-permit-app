@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getCurrentUser } from "../lib/auth";
 import { can, canAny, canAll } from "../lib/hasCap";
+import { PagePermissions } from "../types/permissions";
 
 type AdminRecord = {
   email?: string;
@@ -15,6 +16,7 @@ type AdminRecord = {
   role?: string | null;
   enabled?: boolean;
   caps?: string[] | Set<string> | Record<string, boolean> | null;
+  pagePermissions?: PagePermissions;
   [k: string]: any;
 };
 
@@ -24,6 +26,7 @@ type State = {
   userEmail?: string | null;
   role?: string | null;
   caps?: Set<string>;
+  pagePermissions?: PagePermissions;
 };
 
 const LIST_URL = import.meta.env.VITE_LIST_ADMINS_URL as string | undefined;
@@ -109,7 +112,7 @@ function applyAlias(inSet: Set<string>): Set<string> {
   return out;
 }
 
-// รวมระเบียนที่เป็นอีเมลเดียวกัน → เลือก role ที่แรงสุด + รวม caps ทั้งหมด
+// รวมระเบียนที่เป็นอีเมลเดียวกัน → เลือก role ที่แรงสุด + รวม caps ทั้งหมด + pagePermissions
 function mergeMyRecords(all: AdminRecord[], myEmailLower: string) {
   const mine = all.filter(
     (r) => toLower(r.emailLower) === myEmailLower || toLower(r.email) === myEmailLower
@@ -119,6 +122,7 @@ function mergeMyRecords(all: AdminRecord[], myEmailLower: string) {
   let bestRole: string | null = null;
   let bestRank = -1;
   const capUnion = new Set<string>();
+  let pagePermissions: PagePermissions | undefined = undefined;
 
   for (const rec of mine) {
     const r = (rec.role ?? "").toLowerCase().trim();
@@ -126,13 +130,15 @@ function mergeMyRecords(all: AdminRecord[], myEmailLower: string) {
     if (rr > bestRank) {
       bestRank = rr;
       bestRole = r || null;
+      // เอา pagePermissions จากระเบียนที่มี role สูงสุด
+      pagePermissions = rec.pagePermissions;
     }
     const c = capsFromRecord(rec);
     c.forEach((x) => capUnion.add(x));
   }
 
   const finalCaps = applyAlias(capUnion);
-  return { role: bestRole, caps: finalCaps };
+  return { role: bestRole, caps: finalCaps, pagePermissions };
 }
 
 // ---------------- New path: อ่านจาก Firebase ID Token (custom claims) ----------------
@@ -234,22 +240,22 @@ export default function useAuthzLive(): State {
           try {
             const all = await fetchAdminsWithAuth(user, email);
             const merged = mergeMyRecords(all, emailLower);
-            if (merged) fromToken = { role: merged.role ?? null, caps: merged.caps ?? new Set() };
+            if (merged) fromToken = { role: merged.role ?? null, caps: merged.caps ?? new Set(), pagePermissions: merged.pagePermissions };
           } catch {
             // 3) ถ้ายังไม่ได้ → fallback แบบ legacy ชั่วคราวช่วงย้ายระบบ
             try {
               const all2 = await fetchAdminsLegacy(email);
               const merged2 = mergeMyRecords(all2, emailLower);
-              if (merged2) fromToken = { role: merged2.role ?? null, caps: merged2.caps ?? new Set() };
+              if (merged2) fromToken = { role: merged2.role ?? null, caps: merged2.caps ?? new Set(), pagePermissions: merged2.pagePermissions };
             } catch {}
           }
         }
 
         if (!alive) return;
         if (fromToken) {
-          setSt({ loading: false, userEmail: email, role: fromToken.role, caps: fromToken.caps });
+          setSt({ loading: false, userEmail: email, role: fromToken.role, caps: fromToken.caps, pagePermissions: fromToken.pagePermissions });
         } else {
-          setSt({ loading: false, userEmail: email, role: null, caps: new Set(), error: "not_admin" });
+          setSt({ loading: false, userEmail: email, role: null, caps: new Set(), pagePermissions: undefined, error: "not_admin" });
         }
       } catch (e: any) {
         if (!alive) return;

@@ -13,6 +13,7 @@ import { updateStatusApi } from "../../utils/updateStatus";
 import { ref, getDownloadURL } from "firebase/storage";
 import { storage, ensureSignedIn, auth } from "../../lib/firebase";
 import { canDecide } from "../../lib/getClaims";
+import useAuthzLive from "../../hooks/useAuthzLive";
 import ImageViewer from "../../components/ImageViewer";
 import { useReactToPrint } from "react-to-print";
 
@@ -264,13 +265,27 @@ export default function PermitDetails() {
   });
 
   // โหลดสิทธิ์ (ไว้ซ่อนปุ่ม)
+  const live = useAuthzLive() ?? {};
+  const canViewDetails = 
+    live.role === "superadmin" ||
+    live.pagePermissions?.permits?.canViewDetails === true;
+  
+  const canApprove = 
+    live.role === "superadmin" ||
+    live.pagePermissions?.approvals?.canApprove === true;
+
   useEffect(() => {
-    let live = true;
-    canDecide()
-      .then(ok => { if (live) setAllowed(ok); })
-      .catch(() => { if (live) setAllowed(false); });
-    return () => { live = false; };
-  }, []);
+    let alive = true;
+    // Fallback: ใช้ canDecide สำหรับผู้ใช้เก่าที่ยังไม่มี pagePermissions
+    if (canApprove) {
+      setAllowed(true);
+    } else {
+      canDecide()
+        .then(ok => { if (alive) setAllowed(ok); })
+        .catch(() => { if (alive) setAllowed(false); });
+    }
+    return () => { alive = false; };
+  }, [canApprove]);
 
   // ---------- โหลดรายละเอียด (ใช้ Bearer token) ----------
   useEffect(() => {

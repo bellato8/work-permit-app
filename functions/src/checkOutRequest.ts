@@ -54,9 +54,12 @@ async function checkPermissions(req: any): Promise<{
     }
 
     const adminData = adminDoc.data();
-    const permissions = adminData?.permissions || {};
+    const hasPermission = 
+      adminData?.role === "superadmin" ||
+      adminData?.pagePermissions?.dailyWork?.canCheckInOut === true ||
+      adminData?.permissions?.checkInOut === true; // fallback
     
-    if (!permissions.checkInOut) {
+    if (!hasPermission) {
       return { ok: false, error: "insufficient_permissions" };
     }
 

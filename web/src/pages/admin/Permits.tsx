@@ -275,6 +275,7 @@ export default function Permits() {
   const live = useAuthzLive() ?? {};
   const canView =
     isSuperadmin(live.role) ||
+    live.pagePermissions?.permits?.canView === true ||
     hasCap(live.caps, "view_permits", live.role) ||
     hasCap(live.caps, "view_all", live.role) ||
     hasCap(live.caps, "approve_requests", live.role) ||

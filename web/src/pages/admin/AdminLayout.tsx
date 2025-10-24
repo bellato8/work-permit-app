@@ -87,43 +87,35 @@ type NavItem = {
   label: string;
   icon: React.ReactNode;
   exact?: boolean;
-  anyOfCaps: string[];
+  pageKey?: "dashboard" | "approvals" | "permits" | "dailyWork" | "reports" | "users" | "logs" | "cleanup" | "settings";
+  anyOfCaps: string[]; // เก็บไว้ชั่วคราวสำหรับ fallback
   requireSuperadmin?: boolean;
 };
 
 const NAV_ITEMS: NavItem[] = [
   {
     to: "/admin",
-    label: "Dashboard",
+    label: "แดชบอร์ด",
     icon: <DashboardRoundedIcon />,
     exact: true,
-    anyOfCaps: [
-      "view_dashboard",
-      "manage_users",
-      "approve_requests",
-      "view_reports",
-      "view_permits",
-      "view_logs",
-      "manage_settings",
-    ],
+    pageKey: "dashboard",
+    anyOfCaps: ["view_dashboard", "manage_users", "approve_requests", "view_reports", "view_permits", "view_logs", "manage_settings"],
   },
-  { to: "/admin/approvals", label: "Approvals", icon: <AssignmentTurnedInRoundedIcon />, anyOfCaps: ["approve_requests", "review_requests"] },
-  { to: "/admin/permits",   label: "Permits",   icon: <ArticleRoundedIcon />,          anyOfCaps: ["view_permits", "approve_requests"] },
-  { to: "/admin/logs",      label: "Logs",      icon: <HistoryRoundedIcon />,          anyOfCaps: ["view_logs", "manage_settings"] },
-  
-  // ★★★ [ใหม่] เมนูงานประจำวัน (Daily Operations)
-  { to: "/admin/daily-operations", label: "งานประจำวัน", icon: <CalendarTodayIcon />, anyOfCaps: ["viewTodayWork", "view_permits", "approve_requests"] },
-  
-  { to: "/admin/users",     label: "Users",     icon: <GroupRoundedIcon />,            anyOfCaps: ["manage_users"] },
-  { to: "/admin/reports",   label: "Reports",   icon: <BarChartRoundedIcon />,         anyOfCaps: ["view_reports"] },
+  { to: "/admin/approvals", label: "รออนุมัติ", icon: <AssignmentTurnedInRoundedIcon />, pageKey: "approvals", anyOfCaps: ["approve_requests", "review_requests"] },
+  { to: "/admin/permits",   label: "ใบงาน",   icon: <ArticleRoundedIcon />,          pageKey: "permits", anyOfCaps: ["view_permits", "approve_requests"] },
+  { to: "/admin/logs",      label: "บันทึกการใช้งาน",      icon: <HistoryRoundedIcon />,          pageKey: "logs", anyOfCaps: ["view_logs", "manage_settings"] },
+  { to: "/admin/daily-operations", label: "งานประจำวัน", icon: <CalendarTodayIcon />, pageKey: "dailyWork", anyOfCaps: ["viewTodayWork", "view_permits", "approve_requests"] },
+  { to: "/admin/users",     label: "ผู้ใช้",     icon: <GroupRoundedIcon />,            pageKey: "users", anyOfCaps: ["manage_users"] },
+  { to: "/admin/reports",   label: "รายงาน",   icon: <BarChartRoundedIcon />,         pageKey: "reports", anyOfCaps: ["view_reports"] },
   {
     to: "/admin/cleanup",
-    label: "Cleanup",
+    label: "ล้างข้อมูล",
     icon: <DeleteSweepRoundedIcon />,
+    pageKey: "cleanup",
     anyOfCaps: ["manage_settings"],
     requireSuperadmin: true,
   },
-  { to: "/admin/settings",  label: "Settings",  icon: <SettingsRoundedIcon />,         anyOfCaps: ["manage_settings"] },
+  { to: "/admin/settings",  label: "ตั้งค่า",  icon: <SettingsRoundedIcon />,         pageKey: "settings", anyOfCaps: ["manage_settings"] },
 ];
 
 // -------------------------------------------------------------
@@ -232,6 +224,7 @@ export default function AdminLayout() {
   const authz: any = useAuthzLive?.() ?? {};
   const role: string | null | undefined = authz?.role;
   const caps = authz?.caps;
+  const pagePermissions = authz?.pagePermissions;
 
   // ★ คำนวณว่าเป็น superadmin หรือไม่
   const isSuperadmin = useMemo(() => {
@@ -246,10 +239,19 @@ export default function AdminLayout() {
   // กรองเมนูที่ผู้ใช้ "มีสิทธิ์เห็น"
   const allowedItems = useMemo(
     () =>
-      NAV_ITEMS.filter(
-        (it) => (!it.requireSuperadmin || isSuperadmin) && canAny({ role, caps }, it.anyOfCaps)
-      ),
-    [role, caps, isSuperadmin]
+      NAV_ITEMS.filter((it) => {
+        // ตรวจสอบ superadmin ก่อน
+        if (it.requireSuperadmin && !isSuperadmin) return false;
+        
+        // ถ้ามี pagePermissions ให้ใช้เป็นหลัก
+        if (pagePermissions && it.pageKey) {
+          return pagePermissions[it.pageKey]?.canView === true;
+        }
+        
+        // fallback: ใช้ caps แบบเก่า
+        return canAny({ role, caps }, it.anyOfCaps);
+      }),
+    [role, caps, pagePermissions, isSuperadmin]
   );
 
   useEffect(() => {

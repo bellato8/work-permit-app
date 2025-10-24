@@ -413,12 +413,14 @@ export default function Approvals() {
   const live = useAuthzLive() ?? {};
   const canViewApprovals =
     isSuperadmin(live.role) ||
+    live.pagePermissions?.approvals?.canView === true ||
     hasCap(live.caps, "approve_requests", live.role) ||
     hasCap(live.caps, "review_requests", live.role) ||
     hasCap(live.caps, "view_permits", live.role) ||
     hasCap(live.caps, "view_all", live.role);
   const canExport =
     isSuperadmin(live.role) ||
+    live.pagePermissions?.approvals?.canExport === true ||
     hasCap(live.caps, "export", live.role) ||
     hasCap(live.caps, "view_reports", live.role);
 
