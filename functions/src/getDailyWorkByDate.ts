@@ -34,8 +34,61 @@ function setCORS(res: any) {
   res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }
 
+<<<<<<< HEAD
 // ==================== Helper: แปลงวันที่/เวลา ====================
 /** "2025-10-13T14:16" → "2025-10-13" */
+=======
+// ==================== ตรวจสอบสิทธิ์ ====================
+async function checkPermissions(req: any): Promise<{
+  ok: boolean;
+  error?: string;
+  uid?: string;
+  email?: string;
+}> {
+  const authHeader = req.get("Authorization") || "";
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  
+  if (!match) {
+    return { ok: false, error: "missing_token" };
+  }
+
+  try {
+    const token = match[1];
+    const decoded = await getAuth().verifyIdToken(token);
+    const email = decoded.email?.toLowerCase();
+    
+    if (!email) {
+      return { ok: false, error: "invalid_email" };
+    }
+
+    // ดึงข้อมูล Admin จาก Firestore
+    const adminDoc = await db.collection("admins").doc(email).get();
+    
+    if (!adminDoc.exists) {
+      return { ok: false, error: "not_admin" };
+    }
+
+    const adminData = adminDoc.data();
+    // ใช้ pagePermissions.dailyWork.canView ในการตรวจสอบสิทธิ์
+    const canViewDailyWork = adminData?.pagePermissions?.dailyWork?.canView;
+    
+    if (!canViewDailyWork) {
+      return { ok: false, error: "insufficient_permissions" };
+    }
+
+    return { ok: true, uid: decoded.uid, email };
+  } catch (e: any) {
+    console.error("[checkPermissions] Error:", e);
+    return { ok: false, error: "invalid_token" };
+  }
+}
+
+// ==================== Helper: แปลงวันที่ ====================
+/**
+ * แปลง datetime string เป็น date string
+ * "2025-10-13T14:16" → "2025-10-13"
+ */
+>>>>>>> 2a84cc434188f78af3b236f09fee74ba76df5e84
 function extractDate(datetimeStr: string): string {
   if (!datetimeStr) return "";
   if (datetimeStr.includes("T")) return datetimeStr.split("T")[0];
@@ -88,12 +141,29 @@ export const getDailyWorkByDate = onRequest(
         return;
       }
 
+<<<<<<< HEAD
       // ========== ตรวจสิทธิ์ดูงานประจำวันของวันที่ร้องขอ ==========
       // หมายเหตุ: canViewDailyOps ใช้ timezone ของผู้ใช้ภายใน (authz.ts) ให้ superadmin ผ่าน, มี fallback pagePermissions
       // เพื่อความแม่น เราลองดึง adminDoc สดอีกครั้ง (ถ้าไม่มีให้ใช้ข้อมูลใน who)
       const adminDoc = (await readAdminDoc(who.email)) || (who as any);
       if (!canViewDailyOps(adminDoc, date)) {
         res.status(403).json({ ok: false, error: "insufficient_permissions" });
+=======
+      // ========== ตรวจสอบสิทธิ์ดูวันอื่น ==========
+      const adminDoc = await db.collection("admins").doc(auth.email!).get();
+      const adminData = adminDoc.data();
+      // ใช้ pagePermissions.dailyWork.canViewOtherDays ในการตรวจสอบสิทธิ์
+      const canViewOtherDays = adminData?.pagePermissions?.dailyWork?.canViewOtherDays || false;
+
+      // ถ้าไม่มีสิทธิ์ viewOtherDaysWork ให้ดูได้แค่วันนี้
+      const today = new Date().toISOString().split("T")[0]; // "2025-10-13"
+      if (!canViewOtherDays && date !== today) {
+        res.status(403).json({ 
+          ok: false, 
+          error: "cannot_view_other_days",
+          message: "คุณไม่มีสิทธิ์ดูงานวันอื่น" 
+        });
+>>>>>>> 2a84cc434188f78af3b236f09fee74ba76df5e84
         return;
       }
 
