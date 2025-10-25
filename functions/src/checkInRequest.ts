@@ -200,8 +200,12 @@ async function checkPermissions(req: Request): Promise<AuthResult> {
     }
 
     // ตรวจสอบสิทธิ์ checkInOut
+    // หมายเหตุ: ทุกคนที่เข้าหน้า Daily Operations สามารถเช็คอินได้ (รวม Viewer)
     const hasPermission = 
       adminData.role === "superadmin" ||
+      adminData.role === "admin" ||
+      adminData.role === "approver" ||
+      adminData.role === "viewer" ||
       adminData.pagePermissions?.dailyWork?.canCheckInOut === true ||
       adminData.permissions?.checkInOut === true; // fallback
     

@@ -149,7 +149,11 @@ export default function DailyView({ date, onCheckIn, onCheckOut }: DailyViewProp
     setError(null);
 
     try {
-      const dateStr = date.toISOString().split("T")[0];
+      // แปลงวันที่เป็น YYYY-MM-DD ตามเขตเวลาท้องถิ่น (ไม่ใช้ toISOString เพื่อหลีกเลี่ยง timezone shift)
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      const dateStr = `${y}-${m}-${d}`;
       const result = await getDailyWorkByDate(dateStr);
 
       const allWorks: DailyWorkItem[] = [

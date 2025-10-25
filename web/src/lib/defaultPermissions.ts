@@ -17,6 +17,8 @@ import { PagePermissions } from "../types/permissions";
 /**
  * สิทธิ์เริ่มต้นสำหรับ Viewer
  * - ดูได้แค่: Dashboard, Permits, Daily Operations
+ * - สามารถเช็คอิน/เช็คเอาท์ได้ (เพราะเป็นเจ้าหน้าที่รักษาความปลอดภัย)
+ * - สามารถดูงานวันอื่นได้
  * - ไม่มีสิทธิ์กดอนุมัติ/ลบ/แก้ไข
  * - ไม่เห็นเมนู: Approvals, Reports, Users, Logs, Cleanup, Settings
  */
@@ -38,9 +40,9 @@ export const VIEWER_DEFAULT: PagePermissions = {
   },
   dailyWork: {
     canView: true,
-    canCheckIn: false,
-    canCheckOut: false,
-    canViewOtherDays: false,
+    canCheckIn: true,
+    canCheckOut: true,
+    canViewOtherDays: true,
   },
   reports: {
     canView: false,
