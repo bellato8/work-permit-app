@@ -1,26 +1,32 @@
 // ======================================================================
 // File: web/src/lib/defaultPermissions.ts
 // Purpose: กำหนดสิทธิ์เริ่มต้นสำหรับแต่ละ Role (Viewer/Approver/Admin/Super Admin)
-// Created: 2025-10-14 (Asia/Bangkok)
+// Updated: 2025-10-25 (Asia/Bangkok) - ปรับให้ตรงตามความต้องการของผู้ใช้
 // Notes:
 //  - ตั้งต้นตามหลัก "ให้น้อยที่สุดเท่าที่จำเป็นต่อการทำงาน" (Least Privilege)
 //  - ใช้ควบคู่กับ PagePermissions จาก web/src/types/permissions.ts
+//  - ปรับตามตาราง:
+//    * Viewer: เข้าได้แค่ dashboard, permits, daily-operations (ดูอย่างเดียว)
+//    * Approver: + approvals (อนุมัติได้)
+//    * Admin: + reports, logs, settings
+//    * Superadmin: ทุกอย่าง
 // ======================================================================
 
 import { PagePermissions } from "../types/permissions";
 
 /**
  * สิทธิ์เริ่มต้นสำหรับ Viewer
- * - ดูได้บางหน้าเท่านั้น
+ * - ดูได้แค่: Dashboard, Permits, Daily Operations
  * - ไม่มีสิทธิ์กดอนุมัติ/ลบ/แก้ไข
+ * - ไม่เห็นเมนู: Approvals, Reports, Users, Logs, Cleanup, Settings
  */
 export const VIEWER_DEFAULT: PagePermissions = {
   dashboard: {
     canView: true,
   },
   approvals: {
-    canView: true,
-    canViewDetails: true,
+    canView: false,
+    canViewDetails: false,
     canApprove: false,
     canReject: false,
     canExport: false,
@@ -31,7 +37,7 @@ export const VIEWER_DEFAULT: PagePermissions = {
     canExport: false,
   },
   dailyWork: {
-    canView: false,
+    canView: true,
     canCheckIn: false,
     canCheckOut: false,
     canViewOtherDays: false,
@@ -62,10 +68,14 @@ export const VIEWER_DEFAULT: PagePermissions = {
 
 /**
  * สิทธิ์เริ่มต้นสำหรับ Approver
- * - เพิ่มจาก Viewer: กดอนุมัติ/ปฏิเสธ, ดูรายงาน, เช็คอิน/เช็คเอาท์
+ * - เพิ่มจาก Viewer: กดอนุมัติ/ปฏิเสธ, ส่งออกข้อมูล, เช็คอิน/เช็คเอาท์
+ * - เข้าได้: Dashboard, Approvals, Permits, Daily Operations
+ * - ไม่เข้า: Reports, Users, Logs, Cleanup, Settings
  */
 export const APPROVER_DEFAULT: PagePermissions = {
-  ...VIEWER_DEFAULT,
+  dashboard: {
+    canView: true,
+  },
   approvals: {
     canView: true,
     canViewDetails: true,
@@ -85,35 +95,84 @@ export const APPROVER_DEFAULT: PagePermissions = {
     canViewOtherDays: false,
   },
   reports: {
-    canView: true,
-    canExport: true,
+    canView: false,
+    canExport: false,
+  },
+  users: {
+    canView: false,
+    canEdit: false,
+    canAdd: false,
+    canDelete: false,
+    canInvite: false,
+  },
+  logs: {
+    canView: false,
+  },
+  cleanup: {
+    canView: false,
+    canDelete: false,
+  },
+  settings: {
+    canView: false,
+    canEdit: false,
   },
 };
 
 /**
  * สิทธิ์เริ่มต้นสำหรับ Admin
- * - เพิ่มจาก Approver: จัดการผู้ใช้ได้ + ดูงานวันอื่นได้
+ * - เพิ่มจาก Approver: ดูรายงาน, ดู Logs, ตั้งค่า, ดูงานวันอื่น
+ * - เข้าได้: Dashboard, Approvals, Permits, Daily Operations, Reports, Logs, Settings
+ * - ไม่เข้า: Users, Cleanup (สงวนไว้สำหรับ Superadmin เท่านั้น)
  */
 export const ADMIN_DEFAULT: PagePermissions = {
-  ...APPROVER_DEFAULT,
+  dashboard: {
+    canView: true,
+  },
+  approvals: {
+    canView: true,
+    canViewDetails: true,
+    canApprove: true,
+    canReject: true,
+    canExport: true,
+  },
+  permits: {
+    canView: true,
+    canViewDetails: true,
+    canExport: true,
+  },
   dailyWork: {
     canView: true,
     canCheckIn: true,
     canCheckOut: true,
     canViewOtherDays: true,
   },
+  reports: {
+    canView: true,
+    canExport: true,
+  },
   users: {
+    canView: false,
+    canEdit: false,
+    canAdd: false,
+    canDelete: false,
+    canInvite: false,
+  },
+  logs: {
+    canView: true,
+  },
+  cleanup: {
+    canView: false,
+    canDelete: false,
+  },
+  settings: {
     canView: true,
     canEdit: true,
-    canAdd: true,
-    canDelete: false,
-    canInvite: true,
   },
 };
 
 /**
  * สิทธิ์เริ่มต้นสำหรับ Super Admin
- * - ทำได้ทุกอย่าง
+ * - ทำได้ทุกอย่าง ไม่มีข้อจำกัด
  */
 export const SUPERADMIN_DEFAULT: PagePermissions = {
   dashboard: { canView: true },
@@ -216,3 +275,4 @@ export function getRoleCapabilities(role: string): string[] {
 
   return caps;
 }
+

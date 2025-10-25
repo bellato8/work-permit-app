@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getCurrentUser } from "../lib/auth";
 import { can, canAny, canAll } from "../lib/hasCap";
 import { PagePermissions } from "../types/permissions";
+import { getDefaultPermissions } from "../lib/defaultPermissions";
 
 type AdminRecord = {
   email?: string;
@@ -259,7 +260,17 @@ export default function useAuthzLive(): State {
 
         if (!alive) return;
         if (fromToken) {
-          setSt({ loading: false, userEmail: email, role: fromToken.role, caps: fromToken.caps, pagePermissions: fromToken.pagePermissions });
+          // ถ้าไม่มี pagePermissions ให้ใช้ค่า default จาก role
+          const finalPagePermissions = fromToken.pagePermissions || 
+            (fromToken.role ? getDefaultPermissions(fromToken.role) : undefined);
+          
+          setSt({ 
+            loading: false, 
+            userEmail: email, 
+            role: fromToken.role, 
+            caps: fromToken.caps, 
+            pagePermissions: finalPagePermissions 
+          });
         } else {
           setSt({ loading: false, userEmail: email, role: null, caps: new Set(), pagePermissions: undefined, error: "not_admin" });
         }
