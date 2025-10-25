@@ -221,7 +221,9 @@ export default function CalendarView({ onDateClick }: CalendarViewProps) {
                     }}
                     onClick={() => {
                       if (data && data.totalWorks > 0 && onDateClick) {
-                        onDateClick(new Date(year, month, day));
+                        // สร้าง Date ด้วยเวลาเที่ยง (12:00:00) เพื่อหลีกเลี่ยง timezone edge case
+                        const clickedDate = new Date(year, month, day, 12, 0, 0, 0);
+                        onDateClick(clickedDate);
                       }
                     }}
                     role={data && data.totalWorks > 0 ? "button" : undefined}

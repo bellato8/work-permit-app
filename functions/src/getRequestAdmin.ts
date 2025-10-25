@@ -1,14 +1,14 @@
 // ======================================================================
 // File: functions/src/getRequestAdmin.ts
-// เวอร์ชัน: 2025-10-02
+// เวอร์ชัน: 2025-10-25 (RBAC Fix - รองรับ pagePermissions)
 // หน้าที่: ดึงรายละเอียดคำขอ (RID) สำหรับหน้า Admin/PermitDetails
 // ปรับรอบนี้:
-//   • อนุญาต "ดูรายละเอียด" ถ้ามีอย่างน้อยหนึ่งในสิทธิ์: viewAll | view_all | approve | viewPermits
-//     หรือเป็น superadmin (viewer ที่ถูกติ๊กสิทธิ์ก็เปิดดูได้)
-//   • ออก Signed URL (v4) ให้รูปหลัก/รูปทีมงานแบบชั่วคราว (หมดอายุอัตโนมัติ) เพื่อให้รูปขึ้นแน่นอน
-//   • ตอบ 403 ด้วย code: "need_view_permits" เมื่อยืนยันตัวตนได้ แต่ยังไม่มีสิทธิ์ดูรายละเอียด
+//   • ✅ รองรับ pagePermissions จาก authz.ts (synthesizeCaps)
+//   • ✅ อนุญาต "ดูรายละเอียด" ถ้ามีสิทธิ์ permits.canView หรือ approvals.canView
+//   • ✅ ออก Signed URL (v4) ให้รูปหลัก/รูปทีมงานแบบชั่วคราว (หมดอายุอัตโนมัติ) เพื่อให้รูปขึ้นแน่นอน
+//   • ✅ ตอบ 403 ด้วย code: "need_view_permits" เมื่อยืนยันตัวตนได้ แต่ยังไม่มีสิทธิ์ดูรายละเอียด
 //   • รองรับ API key แบบเก่าเป็น compat ชั่วคราว
-//   • ปรับ “เริ่มใช้งานบริการ” เป็นแบบค่อยเรียกเมื่อจำเป็น (lazy) ลดอาการเริ่มช้า
+//   • ปรับ "เริ่มใช้งานบริการ" เป็นแบบค่อยเรียกเมื่อจำเป็น (lazy) ลดอาการเริ่มช้า
 // หมายเหตุอ้างอิง:
 //   - Signed URL v4 (Google Cloud Storage)  : https://cloud.google.com/storage/docs/samples/storage-generate-signed-url-v4
 //   - Admin Storage: default bucket          : https://firebase.google.com/docs/storage/admin/start
@@ -23,6 +23,7 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 import { getStorage } from "firebase-admin/storage";
 import { emitAudit } from "./lib/emitAudit";
+import { readAdminDoc } from "./authz";
 
 // ----- lazy helpers -----
 function ensureApp() {
@@ -87,6 +88,54 @@ function toEmailId(email?: string | null) {
   return (email || "").trim().toLowerCase();
 }
 
+/** ฟังก์ชันช่วย: สังเคราะห์ caps จาก pagePermissions (คล้าย authz.ts) */
+function synthesizeCaps(admin: any): Record<string, boolean> {
+  const caps: Record<string, boolean> = {};
+  const role = String(admin?.role || "").toLowerCase();
+  const pp = admin?.pagePermissions;
+
+  // superadmin ผ่านทุกอย่าง
+  if (role === "superadmin") {
+    return {
+      viewAll: true,
+      view_all: true,
+      approve: true,
+      viewPermits: true,
+      manageUsers: true,
+      manage_users: true,
+    };
+  }
+
+  // อ่านจาก caps เดิม (ถ้ามี)
+  const oldCaps = admin?.caps || {};
+  Object.assign(caps, oldCaps);
+
+  // Fallback จาก pagePermissions
+  if (pp) {
+    // ดูรายละเอียด Permit
+    if (pp.permits?.canView) caps.viewPermits = true;
+    if (pp.permits?.canView) caps.view_permits = true;
+    
+    // อนุมัติ
+    if (pp.approvals?.canApprove) caps.approve = true;
+    if (pp.approvals?.canReject) caps.reject = true;
+    
+    // ดูทั้งหมด
+    if (pp.permits?.canView || pp.approvals?.canView) {
+      caps.viewAll = true;
+      caps.view_all = true;
+    }
+    
+    // จัดการผู้ใช้
+    if (pp.users?.canView) {
+      caps.manageUsers = true;
+      caps.manage_users = true;
+    }
+  }
+
+  return caps;
+}
+
 async function loadAdminCapsByEmail(email: string) {
   const d = await db().collection("admins").doc(toEmailId(email)).get();
   if (d.exists) return d.data() || null;
@@ -111,15 +160,18 @@ async function checkAuthorization(req: any): Promise<AuthzResult> {
         const admin = (await loadAdminCapsByEmail(email)) || {};
         const enabled = admin.enabled === true;
         const role = String(admin.role || "");
-        const caps = admin.caps || {};
+        
+        // ✅ ใช้ synthesizeCaps เพื่อรองรับ pagePermissions
+        const caps = synthesizeCaps(admin);
 
-        // กติกา "ดูรายละเอียดได้"
+        // กติกา "ดูรายละเอียดได้" (เช็คจาก caps ที่สังเคราะห์แล้ว)
         const canView =
           role === "superadmin" ||
           caps.viewAll === true ||
           caps.view_all === true ||
           caps.approve === true ||
-          caps.viewPermits === true;
+          caps.viewPermits === true ||
+          caps.view_permits === true;
 
         if (enabled) {
           return {

@@ -1,10 +1,10 @@
 // ======================================================================
 // File: functions/src/updateStatus.ts
-// เวอร์ชัน: 28/09/2025 06:30 (Asia/Bangkok)
+// เวอร์ชัน: 25/10/2025 (RBAC Fix - รองรับ pagePermissions)
 // หน้าที่:
 //   Endpoint อนุมัติ/ไม่อนุมัติ/ส่งกลับคำขอ (requests/{rid}) แบบ RBAC แท้จริง
 //   - ยืนยันตัวตนจาก Authorization: Bearer <ID_TOKEN> → verifyIdToken() (Admin SDK)
-//   - ตรวจสิทธิ์จาก custom claims (role/caps)
+//   - ✅ ตรวจสิทธิ์จาก Firestore admins collection (รองรับ pagePermissions)
 //   - อัปเดตสถานะ + บันทึกผู้กระทำ + เขียน audit log
 // ไฮไลต์:
 //   • แก้ TS18048 โดยใช้ "discriminated union" ให้ TypeScript แคบชนิดได้หลังเช็ค gate.ok
@@ -68,6 +68,36 @@ function mustReason(s?: string) {
   return v.length >= 2 ? v : "";
 }
 
+/** สังเคราะห์ caps จาก pagePermissions */
+function synthesizeCaps(admin: any): Record<string, boolean> {
+  const caps: Record<string, boolean> = {};
+  const role = String(admin?.role || "").toLowerCase();
+  const pp = admin?.pagePermissions;
+
+  if (role === "superadmin") {
+    return {
+      approve: true,
+      decide: true,
+      reject: true,
+      manage_requests: true,
+    };
+  }
+
+  // อ่านจาก caps เดิม
+  const oldCaps = admin?.caps || {};
+  Object.assign(caps, oldCaps);
+
+  // Fallback จาก pagePermissions
+  if (pp) {
+    if (pp.approvals?.canApprove) caps.approve = true;
+    if (pp.approvals?.canReject) caps.reject = true;
+    if (pp.approvals?.canReject) caps.decide = true;
+    if (pp.permits?.canEdit) caps.manage_requests = true;
+  }
+
+  return caps;
+}
+
 // --------------------- AuthN + AuthZ (สำคัญ) ---------------------
 // AuthN = Authentication (ยืนยันตัวตน) / AuthZ = Authorization (สิทธิ์)
 async function verifyAndAuthorize(req: any): Promise<Gate> {
@@ -77,13 +107,19 @@ async function verifyAndAuthorize(req: any): Promise<Gate> {
     return { ok: false, status: 401, error: "missing_bearer_token" };
   }
   try {
-    const decoded = await getAuth().verifyIdToken(m[1]); // Verify ID Token (มาตรฐาน) :contentReference[oaicite:7]{index=7}
+    const decoded = await getAuth().verifyIdToken(m[1]);
     const email = (decoded.email || "").toLowerCase();
 
-    // อ่าน custom claims เพื่อ RBAC (มาจาก beforeSignIn/ระบบ admin) :contentReference[oaicite:8]{index=8}
-    const role: string | undefined = (decoded as any).role ?? (decoded as any)["role"];
-    const caps: Record<string, any> =
-      (decoded as any).caps ?? (decoded as any)["caps"] ?? {};
+    // ✅ อ่านจาก Firestore แทน custom claims (เพื่อรองรับ pagePermissions)
+    const adminDoc = await db.collection("admins").doc(email).get();
+    const admin = adminDoc.exists ? adminDoc.data() : null;
+    
+    if (!admin || admin.enabled === false) {
+      return { ok: false, status: 403, error: "insufficient_permissions" };
+    }
+
+    const role = String(admin.role || "").toLowerCase();
+    const caps = synthesizeCaps(admin);
 
     const can =
       role === "superadmin" ||

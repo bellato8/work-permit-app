@@ -1,9 +1,10 @@
 "use strict";
 // ======================================================================
 // File: functions/src/onRequestCreated.ts
-// เวอร์ชัน: 2025-09-24 01:10 ICT
-// หน้าที่: Firestore Trigger (on create) ส่งอีเมลแจ้ง "ผู้อนุมัติ + แอดมินทั้งหมด"
-//          โหมดใหม่: ปุ่มในอีเมลลิงก์ไปยังหน้าเว็บที่ต้อง "ล็อกอินจริง + RBAC" เท่านั้น
+// เวอร์ชัน: 2025-10-25 (แก้ไข: เพิ่มการส่ง email ยืนยันไปหาผู้กรอกฟอร์ม)
+// หน้าที่: Firestore Trigger (on create) ส่งอีเมล 2 ฉบับ:
+//          1) ยืนยันรับคำขอไปหาผู้กรอกฟอร์ม (requester)
+//          2) แจ้งผู้อนุมัติ + แอดมินทั้งหมด
 // จุดเด่น: table-based + inline CSS, preheader, bulletproof button (VML),
 //          plain-text fallback, QR (CID), idempotent send (transaction lock)
 // ======================================================================
@@ -161,11 +162,147 @@ exports.onRequestCreated = (0, firestore_1.onDocumentCreated)({
     const bccList = uniqEmails(recipients);
     if (bccList.length === 0)
         bccList.push((SMTP_FROM.value() || "").toString());
-    // พรีเฮดเดอร์ + หัวเรื่อง
-    const preheader = `RID ${rid} • ${company} • ${locationLine} • ${timeFromStr}–${timeToStr} (${durStr})`;
-    const subject = `คำขอเข้าทำงานใหม่ • RID: ${rid} • ${company} • ${locationLine}`;
-    // ---------- STEP 3: เตรียมอีเมล HTML ----------
-    const bulletproofBtn = (href, label) => `
+    // สร้าง transporter
+    const transporter = nodemailer_1.default.createTransport({
+        host: "smtp.gmail.com",
+        port: 465,
+        secure: true,
+        auth: { user: SMTP_USER.value(), pass: SMTP_PASS.value() },
+    });
+    // ========== EMAIL 1: ส่งให้ผู้กรอกฟอร์ม (Requester) ==========
+    if (requesterEmail) {
+        const requesterSubject = `ระบบได้รับคำขอของคุณแล้ว ✅ • เลขคำขอ: ${rid}`;
+        const requesterPreheader = `เลขคำขอ: ${rid} • ตรวจสอบสถานะได้ที่ลิงก์ด้านล่าง`;
+        const bulletproofBtnRequester = (href, label) => `
+        <!--[if mso]>
+        <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="${href}" style="height:44px;v-text-anchor:middle;width:260px;" arcsize="12%" stroke="f" fillcolor="#10b981">
+          <w:anchorlock/>
+          <center style="color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;">
+            ${label}
+          </center>
+        </v:roundrect>
+        <![endif]-->
+        <!--[if !mso]><!-- -->
+        <a href="${href}" target="_blank" rel="noopener"
+           style="background:#10b981;border-radius:12px;color:#ffffff;display:inline-block;font-weight:700;
+                  line-height:44px;text-align:center;text-decoration:none;width:260px;">
+          ${label}
+        </a>
+        <!--<![endif]-->
+      `;
+        const requesterHtml = `
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="x-apple-disable-message-reformatting">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
+  <title>${requesterSubject}</title>
+  <style>
+    .preheader { display:none!important; visibility:hidden; mso-hide:all;
+      font-size:1px; line-height:1px; max-height:0; max-width:0; opacity:0; overflow:hidden; }
+    a { text-decoration:none; }
+  </style>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;">
+  <div class="preheader">${requesterPreheader}</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;">
+    <tr>
+      <td align="center" style="padding:24px;">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0"
+               style="width:600px;max-width:100%;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;">
+          <!-- Header -->
+          <tr>
+            <td style="padding:20px 24px;background:#10b981;color:#ffffff;font:bold 20px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial;">
+              ระบบได้รับคำขอของคุณแล้ว ✅
+            </td>
+          </tr>
+
+          <!-- Content -->
+          <tr>
+            <td style="padding:24px;">
+              <p style="margin:0 0 16px;font-size:16px;line-height:1.5;">
+                เรียน คุณ${safe(requesterName)}
+              </p>
+              <p style="margin:0 0 16px;font-size:16px;line-height:1.5;">
+                ระบบได้รับคำขอเข้าทำงานของคุณเรียบร้อยแล้ว
+              </p>
+              <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:16px;margin:0 0 16px;">
+                <div style="font-weight:600;margin-bottom:8px;color:#166534;">เลขคำขอ: ${rid}</div>
+                <div style="color:#166534;">บริษัท: ${safe(company)}</div>
+                <div style="color:#166534;">สถานที่: ${safe(locationLine)}</div>
+                <div style="color:#166534;">ช่วงเวลา: ${safe(timeFromStr)} — ${safe(timeToStr)}</div>
+              </div>
+              <p style="margin:0 0 24px;font-size:16px;line-height:1.5;">
+                ตรวจสอบสถานะได้ที่ลิงก์นี้:
+              </p>
+              <div style="text-align:center;margin:0 0 24px;">
+                ${bulletproofBtnRequester(statusLink, "ตรวจสอบสถานะ")}
+              </div>
+              <div style="text-align:center;margin:0 0 16px;">
+                <img src="cid:status-qr" alt="QR for status" width="150" height="150"
+                     style="border:1px solid #e5e7eb;border-radius:8px;display:inline-block;">
+                <div style="margin-top:8px;font-size:12px;color:#6b7280;">
+                  สแกน QR Code เพื่อตรวจสอบสถานะ
+                </div>
+              </div>
+              <div style="font-size:14px;color:#6b7280;line-height:1.5;">
+                หรือคัดลอกลิงก์: <a href="${statusLink}" style="color:#2563eb">${statusLink}</a>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:16px 24px 24px;color:#6b7280;font-size:12px;border-top:1px solid #e5e7eb;">
+              — ระบบ Work Permit<br>
+              อีเมลนี้ถูกส่งอัตโนมัติ • RID: ${rid} • เวลา: ${fmtDate(new Date())} (ICT)
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`;
+        const requesterText = [
+            `ระบบได้รับคำขอของคุณแล้ว ✅`,
+            ``,
+            `เลขคำขอ: ${rid}`,
+            ``,
+            `ตรวจสอบสถานะได้ที่ลิงก์นี้:`,
+            `${statusLink}`,
+            ``,
+            `— ระบบ Work Permit`,
+        ].join("\n");
+        try {
+            await transporter.sendMail({
+                from: SMTP_FROM.value(),
+                to: requesterEmail,
+                subject: requesterSubject,
+                html: requesterHtml,
+                text: requesterText,
+                attachments: [
+                    {
+                        filename: `qr-${rid}.png`,
+                        content: qrPng,
+                        contentType: "image/png",
+                        cid: "status-qr",
+                    },
+                ],
+            });
+            console.log(`✅ Email ยืนยันส่งไปหา ${requesterEmail} แล้ว`);
+        }
+        catch (err) {
+            console.error(`❌ ส่ง email ยืนยันไปหา ${requesterEmail} ไม่สำเร็จ:`, err);
+        }
+    }
+    // ========== EMAIL 2: ส่งให้ Admin/Approver ==========
+    const adminPreheader = `RID ${rid} • ${company} • ${locationLine} • ${timeFromStr}–${timeToStr} (${durStr})`;
+    const adminSubject = `คำขอเข้าทำงานใหม่ • RID: ${rid} • ${company} • ${locationLine}`;
+    const bulletproofBtnAdmin = (href, label) => `
       <!--[if mso]>
       <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="${href}" style="height:44px;v-text-anchor:middle;width:260px;" arcsize="12%" stroke="f" fillcolor="#111827">
         <w:anchorlock/>
@@ -182,7 +319,7 @@ exports.onRequestCreated = (0, firestore_1.onDocumentCreated)({
       </a>
       <!--<![endif]-->
     `;
-    const html = `
+    const adminHtml = `
 <!doctype html>
 <html lang="th">
 <head>
@@ -190,7 +327,7 @@ exports.onRequestCreated = (0, firestore_1.onDocumentCreated)({
   <meta name="x-apple-disable-message-reformatting">
   <meta name="color-scheme" content="light dark">
   <meta name="supported-color-schemes" content="light dark">
-  <title>${subject}</title>
+  <title>${adminSubject}</title>
   <style>
     .preheader { display:none!important; visibility:hidden; mso-hide:all;
       font-size:1px; line-height:1px; max-height:0; max-width:0; opacity:0; overflow:hidden; }
@@ -198,7 +335,7 @@ exports.onRequestCreated = (0, firestore_1.onDocumentCreated)({
   </style>
 </head>
 <body style="margin:0;padding:0;background:#f3f4f6;">
-  <div class="preheader">${preheader}</div>
+  <div class="preheader">${adminPreheader}</div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;">
     <tr>
       <td align="center" style="padding:24px;">
@@ -290,7 +427,7 @@ exports.onRequestCreated = (0, firestore_1.onDocumentCreated)({
                     </div>
                   </td>
                   <td align="right" style="vertical-align:middle;">
-                    ${bulletproofBtn(decisionPage, "เปิดหน้าตัดสิน (อนุมัติ/ไม่อนุมัติ)")}
+                    ${bulletproofBtnAdmin(decisionPage, "เปิดหน้าตัดสิน (อนุมัติ/ไม่อนุมัติ)")}
                     <div style="font-size:12px;color:#6b7280;margin-top:6px;">
                       * ต้อง <b>ล็อกอิน</b> ก่อนตัดสินผล เพื่อระบุผู้อนุมัติที่แท้จริง
                     </div>
@@ -314,8 +451,7 @@ exports.onRequestCreated = (0, firestore_1.onDocumentCreated)({
 </body>
 </html>
 `;
-    // ---------- Plain text fallback ----------
-    const text = [
+    const adminText = [
         `คำขอเข้าทำงานใหม่ | RID: ${rid}`,
         `บริษัท: ${safe(company)}`,
         `สถานที่: ${safe(locationLine)}`,
@@ -333,20 +469,13 @@ exports.onRequestCreated = (0, firestore_1.onDocumentCreated)({
         `ดูสถานะ: ${statusLink}`,
         `ตัดสินผล (ต้องล็อกอิน): ${decisionPage}`,
     ].join("\n");
-    // ---------- STEP 4: ส่งอีเมล ----------
-    const transporter = nodemailer_1.default.createTransport({
-        host: "smtp.gmail.com",
-        port: 465,
-        secure: true,
-        auth: { user: SMTP_USER.value(), pass: SMTP_PASS.value() },
-    });
-    const info = await (await transporter).sendMail({
+    const info = await transporter.sendMail({
         from: SMTP_FROM.value(),
         to: SMTP_FROM.value(), // กล่องระบบ (กันโดนมองว่าไม่มีผู้รับหลัก)
         bcc: bccList, // แอดมิน/ผู้อนุมัติทั้งหมด
-        subject,
-        html,
-        text,
+        subject: adminSubject,
+        html: adminHtml,
+        text: adminText,
         attachments: [
             {
                 filename: `qr-${rid}.png`,
@@ -363,6 +492,7 @@ exports.onRequestCreated = (0, firestore_1.onDocumentCreated)({
             createdNoticeLock: firestore_2.FieldValue.delete(),
             lastMessageId: info?.messageId || null,
             recipientsCount: bccList.length,
+            requesterEmailSent: !!requesterEmail,
         },
         updatedAt: firestore_2.FieldValue.serverTimestamp(),
     }, { merge: true });

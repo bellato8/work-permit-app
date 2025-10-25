@@ -1,13 +1,12 @@
 // ======================================================================
 // File: src/pages/admin/AdminLayout.tsx
-// เวอร์ชัน: 2025-09-22 01:05 (Asia/Bangkok)
+// เวอร์ชัน: 2025-10-25 (Asia/Bangkok) - ปรับใช้ RBAC แบบใหม่
 // หน้าที่: โครงหน้าผู้ดูแล (Sidebar + Topbar + Content) พร้อมรองรับมือถือ
-// การเปลี่ยนแปลงรอบนี้ (Mobile Drawer – Step 3):
-//  - ปิด SwipeableDrawer อัตโนมัติเมื่อเปลี่ยนเส้นทาง (route) หรือสลับเป็นจอ md+
-//  - คง UX/A11y ตามแนวทาง WAI-ARIA & Material; คง safe-area ด้านล่างสำหรับ iOS notch
-//  - [ใหม่] เพิ่มเมนู "งานประจำวัน" (Daily Operations)
+// การเปลี่ยนแปลงรอบนี้:
+//  - ใช้ pagePermissions เป็นหลักในการกรองเมนู (แทน anyOfCaps)
+//  - ใช้ filterVisibleMenus จาก rbacGuard
+//  - รองรับ fallback เมื่อไม่มี pagePermissions
 // เชื่อม auth ผ่าน "อะแดปเตอร์": ../../lib/auth และสิทธิ์สด: ../../hooks/useAuthzLive
-// หมายเหตุ: ไม่ตัดฟีเจอร์เดิม (สิทธิ์/เมนู/ปุ่มเดิมทั้งหมดอยู่ครบ)
 // ======================================================================
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -42,8 +41,8 @@ import { getCurrentUser, signOut } from "../../lib/auth";
 
 // ---- Authz สด + ตัวช่วย UI gating ----
 import useAuthzLive from "../../hooks/useAuthzLive";
-import RequireCap, { NoPermissionBadge } from "../../components/RequireCap";
-import { canAny } from "../../lib/hasCap";
+import { NoPermissionBadge } from "../../components/RequireCap";
+import { filterVisibleMenus, hasAnyPageAccess } from "../../lib/rbacGuard";
 
 // ค่าจาก .env
 const SITE_NAME = import.meta.env.VITE_SITE_NAME || "Work Permit App";
@@ -88,7 +87,6 @@ type NavItem = {
   icon: React.ReactNode;
   exact?: boolean;
   pageKey?: "dashboard" | "approvals" | "permits" | "dailyWork" | "reports" | "users" | "logs" | "cleanup" | "settings";
-  anyOfCaps: string[]; // เก็บไว้ชั่วคราวสำหรับ fallback
   requireSuperadmin?: boolean;
 };
 
@@ -99,23 +97,21 @@ const NAV_ITEMS: NavItem[] = [
     icon: <DashboardRoundedIcon />,
     exact: true,
     pageKey: "dashboard",
-    anyOfCaps: ["view_dashboard", "manage_users", "approve_requests", "view_reports", "view_permits", "view_logs", "manage_settings"],
   },
-  { to: "/admin/approvals", label: "รออนุมัติ", icon: <AssignmentTurnedInRoundedIcon />, pageKey: "approvals", anyOfCaps: ["approve_requests", "review_requests"] },
-  { to: "/admin/permits",   label: "ใบงาน",   icon: <ArticleRoundedIcon />,          pageKey: "permits", anyOfCaps: ["view_permits", "approve_requests"] },
-  { to: "/admin/logs",      label: "บันทึกการใช้งาน",      icon: <HistoryRoundedIcon />,          pageKey: "logs", anyOfCaps: ["view_logs", "manage_settings"] },
-  { to: "/admin/daily-operations", label: "งานประจำวัน", icon: <CalendarTodayIcon />, pageKey: "dailyWork", anyOfCaps: ["viewTodayWork", "view_permits", "approve_requests"] },
-  { to: "/admin/users",     label: "ผู้ใช้",     icon: <GroupRoundedIcon />,            pageKey: "users", anyOfCaps: ["manage_users"] },
-  { to: "/admin/reports",   label: "รายงาน",   icon: <BarChartRoundedIcon />,         pageKey: "reports", anyOfCaps: ["view_reports"] },
+  { to: "/admin/approvals", label: "รออนุมัติ", icon: <AssignmentTurnedInRoundedIcon />, pageKey: "approvals" },
+  { to: "/admin/permits",   label: "ใบงาน",   icon: <ArticleRoundedIcon />,          pageKey: "permits" },
+  { to: "/admin/daily-operations", label: "งานประจำวัน", icon: <CalendarTodayIcon />, pageKey: "dailyWork" },
+  { to: "/admin/reports",   label: "รายงาน",   icon: <BarChartRoundedIcon />,         pageKey: "reports" },
+  { to: "/admin/logs",      label: "บันทึกการใช้งาน",      icon: <HistoryRoundedIcon />,          pageKey: "logs" },
+  { to: "/admin/users",     label: "ผู้ใช้",     icon: <GroupRoundedIcon />,            pageKey: "users" },
   {
     to: "/admin/cleanup",
     label: "ล้างข้อมูล",
     icon: <DeleteSweepRoundedIcon />,
     pageKey: "cleanup",
-    anyOfCaps: ["manage_settings"],
     requireSuperadmin: true,
   },
-  { to: "/admin/settings",  label: "ตั้งค่า",  icon: <SettingsRoundedIcon />,         pageKey: "settings", anyOfCaps: ["manage_settings"] },
+  { to: "/admin/settings",  label: "ตั้งค่า",  icon: <SettingsRoundedIcon />,         pageKey: "settings" },
 ];
 
 // -------------------------------------------------------------
@@ -171,19 +167,18 @@ function SidebarContent({
               ? locPathname === "/admin" || locPathname === "/admin/"
               : locPathname.startsWith(m.to);
             return (
-              <RequireCap key={m.to} role={role} caps={caps} anyOf={m.anyOfCaps}>
-                <ListItemButton
-                  component={NavLink as any}
-                  to={m.to}
-                  className={isActive ? "active" : undefined}
-                  onClick={() => onNavigate?.()}
-                >
-                  <ListItemIcon sx={{ minWidth: 36, color: isActive ? "primary.main" : "text.secondary" }}>
-                    {m.icon}
-                  </ListItemIcon>
-                  <ListItemText primary={m.label} />
-                </ListItemButton>
-              </RequireCap>
+              <ListItemButton
+                key={m.to}
+                component={NavLink as any}
+                to={m.to}
+                className={isActive ? "active" : undefined}
+                onClick={() => onNavigate?.()}
+              >
+                <ListItemIcon sx={{ minWidth: 36, color: isActive ? "primary.main" : "text.secondary" }}>
+                  {m.icon}
+                </ListItemIcon>
+                <ListItemText primary={m.label} />
+              </ListItemButton>
             );
           })
         )}
@@ -226,32 +221,16 @@ export default function AdminLayout() {
   const caps = authz?.caps;
   const pagePermissions = authz?.pagePermissions;
 
-  // ★ คำนวณว่าเป็น superadmin หรือไม่
-  const isSuperadmin = useMemo(() => {
-    return (
-      role === "superadmin" ||
-      caps?.includes?.("superadmin") === true ||
-      authz?.superadmin === true ||
-      authz?.roles?.superadmin === true
-    );
-  }, [role, caps, authz]);
-
-  // กรองเมนูที่ผู้ใช้ "มีสิทธิ์เห็น"
+  // กรองเมนูที่ผู้ใช้ "มีสิทธิ์เห็น" โดยใช้ filterVisibleMenus
   const allowedItems = useMemo(
-    () =>
-      NAV_ITEMS.filter((it) => {
-        // ตรวจสอบ superadmin ก่อน
-        if (it.requireSuperadmin && !isSuperadmin) return false;
-        
-        // ถ้ามี pagePermissions ให้ใช้เป็นหลัก
-        if (pagePermissions && it.pageKey) {
-          return pagePermissions[it.pageKey]?.canView === true;
-        }
-        
-        // fallback: ใช้ caps แบบเก่า
-        return canAny({ role, caps }, it.anyOfCaps);
-      }),
-    [role, caps, pagePermissions, isSuperadmin]
+    () => filterVisibleMenus(NAV_ITEMS, pagePermissions, role, caps),
+    [role, caps, pagePermissions]
+  );
+
+  // ตรวจสอบว่ามีสิทธิ์เข้าถึงอย่างน้อยหนึ่งหน้าหรือไม่
+  const hasAccess = useMemo(
+    () => hasAnyPageAccess(pagePermissions, role),
+    [pagePermissions, role]
   );
 
   useEffect(() => {
@@ -383,7 +362,7 @@ export default function AdminLayout() {
           </AppBar>
 
           {/* เนื้อหา */}
-          {allowedItems.length === 0 ? (
+          {!hasAccess ? (
             <Box sx={{ p: { xs: 2, md: 3 } }}>
               <Box sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
                 <NoPermissionBadge />

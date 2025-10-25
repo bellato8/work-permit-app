@@ -266,26 +266,37 @@ export default function PermitDetails() {
 
   // โหลดสิทธิ์ (ไว้ซ่อนปุ่ม)
   const live = useAuthzLive() ?? {};
+  
+  // ตรวจสอบว่ามีสิทธิ์ดูรายละเอียดหรือไม่
   const canViewDetails = 
     live.role === "superadmin" ||
     live.pagePermissions?.permits?.canViewDetails === true;
   
+  // ตรวจสอบว่ามีสิทธิ์อนุมัติ/ไม่อนุมัติหรือไม่
   const canApprove = 
     live.role === "superadmin" ||
     live.pagePermissions?.approvals?.canApprove === true;
 
+  const canReject = 
+    live.role === "superadmin" ||
+    live.pagePermissions?.approvals?.canReject === true;
+
   useEffect(() => {
     let alive = true;
-    // Fallback: ใช้ canDecide สำหรับผู้ใช้เก่าที่ยังไม่มี pagePermissions
-    if (canApprove) {
+    // ใช้ pagePermissions เป็นหลัก ถ้าไม่มีให้ fallback ไปใช้ canDecide
+    if (canApprove || canReject) {
       setAllowed(true);
+    } else if (live.pagePermissions) {
+      // ถ้ามี pagePermissions แล้วแต่ไม่มีสิทธิ์อนุมัติ แสดงว่าไม่มีสิทธิ์
+      setAllowed(false);
     } else {
+      // Fallback: ใช้ canDecide สำหรับผู้ใช้เก่าที่ยังไม่มี pagePermissions
       canDecide()
         .then(ok => { if (alive) setAllowed(ok); })
         .catch(() => { if (alive) setAllowed(false); });
     }
     return () => { alive = false; };
-  }, [canApprove]);
+  }, [canApprove, canReject, live.pagePermissions]);
 
   // ---------- โหลดรายละเอียด (ใช้ Bearer token) ----------
   useEffect(() => {
@@ -684,8 +695,16 @@ export default function PermitDetails() {
         </div>
       )}
       {!loading && !err && data && thaiStatus(detail?.status || detail?.decision?.status) === "รอดำเนินการ" && allowed === false && (
-        <div className="mt-4 text-sm text-slate-600 no-print">
-          * คุณไม่มีสิทธิ์ในการตัดสินคำขอนี้ (ปุ่มถูกซ่อน)
+        <div className="mt-4 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 no-print">
+          <div className="flex items-start gap-2">
+            <svg className="w-5 h-5 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+            <div>
+              <div className="font-semibold">คุณมีสิทธิ์ดูอย่างเดียว</div>
+              <div className="mt-0.5">คุณสามารถดูรายละเอียดใบงานได้ แต่ไม่สามารถอนุมัติหรือปฏิเสธได้ หากต้องการสิทธิ์เพิ่มเติม กรุณาติดต่อผู้ดูแลระบบ</div>
+            </div>
+          </div>
         </div>
       )}
 

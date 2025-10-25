@@ -135,9 +135,26 @@ export const listadmins = onRequest(
     try {
       if (!["GET", "POST"].includes(req.method)) return fail(res, "method_not_allowed", 405);
 
-      // ตรวจ ID Token + ต้องมี manage_users
+      // ตรวจ ID Token + ต้องมี manage_users หรือ logs.canView
       const gate = await checkCanManageUsers(req as any);
-      if (!gate.ok) return fail(res, gate.error || "forbidden", gate.status || 403);
+      
+      // ถ้าไม่ผ่าน manage_users ให้ลองเช็คว่ามีสิทธิ์ดู logs หรือไม่
+      if (!gate.ok) {
+        const { requireFirebaseUser, readAdminDoc } = require("./authz");
+        const who = await requireFirebaseUser(req);
+        if (!who.ok) return fail(res, who.error || "forbidden", who.status || 403);
+        
+        // อ่านเอกสาร admin เพื่อเช็ค pagePermissions
+        const doc = await readAdminDoc(who.email);
+        const canViewLogs = doc?.pagePermissions?.logs?.canView === true;
+        
+        if (!canViewLogs) {
+          return fail(res, "forbidden: need_manage_users_or_view_logs", 403);
+        }
+        
+        // ถ้ามีสิทธิ์ดู logs ให้ผ่าน (แต่เป็น read-only)
+        logger.info("[listadmins] allowed via logs.canView", { email: who.email });
+      }
 
       const snap = await db.collection("admins").orderBy("role").get();
       const items = snap.docs.map((d) => {

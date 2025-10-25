@@ -1,6 +1,6 @@
 /* ============================================================================
  * ไฟล์: functions/src/serverAuthz.ts
- * เวอร์ชัน: 2025-09-17
+// เวอร์ชัน: 2025-10-25 (RBAC Fix - รองรับ pagePermissions)
  * บทบาทไฟล์ (role): ตัวช่วยตรวจสิทธิฝั่งเซิร์ฟเวอร์สำหรับฟังก์ชันแอดมิน (Users)
  * เปลี่ยนแปลงรอบนี้:
  *   • เพิ่มฟังก์ชันรวมศูนย์เพื่อตรวจสิทธิ manage_users ก่อนทำงาน
@@ -26,6 +26,7 @@ export type AdminDoc = {
   role?: string;
   enabled?: boolean;
   caps?: Record<string, any>;
+  pagePermissions?: any; // ✅ เพิ่มรองรับ pagePermissions
   [k: string]: any;
 };
 
@@ -103,16 +104,21 @@ export async function loadAdminByEmailLower(emailLower: string): Promise<AdminDo
     caps: data.caps || {},
   };
 }
-
-// ---------- ตรวจสิทธิ manage_users ----------
+// ---------- ตรวจสิทธิ์ manage_users ----------
 export function hasManageUsers(a: AdminDoc | null | undefined): boolean {
   if (!a) return false;
   const role = String(a.role || "").toLowerCase();
   if (role === "superadmin") return true;
 
+  // ✅ เช็คจาก caps เดิมก่อน
   const caps = (a.caps || {}) as Record<string, any>;
-  // รองรับทั้งคีย์เดิม/ใหม่
-  return !!(caps.manageUsers === true || caps.manage_users === true);
+  if (caps.manageUsers === true || caps.manage_users === true) return true;
+
+  // ✅ Fallback จาก pagePermissions
+  const pp = a.pagePermissions;
+  if (pp?.users?.canEdit || pp?.users?.canCreate || pp?.users?.canDelete) return true;
+
+  return false;
 }
 
 /**
