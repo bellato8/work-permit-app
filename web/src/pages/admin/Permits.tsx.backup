@@ -19,9 +19,6 @@ import { useNavigate } from "react-router-dom";
 import useAuthzLive from "../../hooks/useAuthzLive";
 import { hasCap, isSuperadmin } from "../../lib/hasCap";
 
-// CSV Column Selector
-import CsvColumnSelector, { CsvColumn } from "../../components/CsvColumnSelector";
-
 // Firebase Auth (ใช้ดึง ID Token)
 import { getAuth } from "firebase/auth";
 
@@ -213,57 +210,24 @@ async function hydrateDetails(rows: PermitRow[]): Promise<PermitRow[]> {
   return out;
 }
 
-// ---------------- CSV (ใส่ BOM + เลือกคอลัมน์ได้) ----------------
-function rowsToCsv(rows: PermitRow[], selectedColumns: CsvColumn[]): string {
+// ---------------- CSV (ใส่ BOM) ----------------
+function rowsToCsv(rows: PermitRow[]): string {
+  const headers = ["rid","requesterName","company","jobType","floor","area","dateShown","status"];
   const esc = (x: any) => `"${String(x ?? "").replace(/"/g, '""')}"`;
-  
-  // กรองเฉพาะคอลัมน์ที่เลือก
-  const enabledCols = selectedColumns.filter(c => c.enabled);
-  if (enabledCols.length === 0) {
-    return ""; // ไม่มีคอลัมน์ใดเลือก
-  }
-  
-  // Header (ใช้ label ภาษาไทย)
-  const headerLine = enabledCols.map(c => esc(c.label)).join(",");
-  const lines = [headerLine];
-  
-  // Data rows
+  const lines = [headers.join(",")];
   for (const r of rows) {
-    const rowData: string[] = [];
-    for (const col of enabledCols) {
-      switch (col.key) {
-        case "rid":
-          rowData.push(esc(r.rid));
-          break;
-        case "requesterName":
-          rowData.push(esc(r.requesterName ?? ""));
-          break;
-        case "company":
-          rowData.push(esc(r.company ?? ""));
-          break;
-        case "jobType":
-          rowData.push(esc(r.jobType ?? ""));
-          break;
-        case "floor":
-          rowData.push(esc(r.floor ?? ""));
-          break;
-        case "area":
-          rowData.push(esc(r.area ?? ""));
-          break;
-        case "dateShown":
-          const t = r.createdAt ?? r.updatedAt ?? r.approvedAt ?? r.rejectedAt;
-          rowData.push(esc(fmtDate(t)));
-          break;
-        case "status":
-          rowData.push(esc(normalizeStatus(r.status)));
-          break;
-        default:
-          rowData.push(esc(""));
-      }
-    }
-    lines.push(rowData.join(","));
+    const t = r.createdAt ?? r.updatedAt ?? r.approvedAt ?? r.rejectedAt;
+    lines.push([
+      esc(r.rid),
+      esc(r.requesterName ?? ""),
+      esc(r.company ?? ""),
+      esc(r.jobType ?? ""),
+      esc(r.floor ?? ""),
+      esc(r.area ?? ""),
+      esc(fmtDate(t)),
+      esc(normalizeStatus(r.status)),
+    ].join(","));
   }
-  
   return lines.join("\n");
 }
 function downloadCsv(filename: string, csv: string) {
@@ -328,19 +292,6 @@ export default function Permits() {
   // paging (client-side)
   const [page, setPage] = useState(0);
   const pageSize = 20; // ✅ ประกาศครั้งเดียวเท่านั้น
-
-  // CSV Column Selector
-  const [showCsvModal, setShowCsvModal] = useState(false);
-  const [csvColumns, setCsvColumns] = useState<CsvColumn[]>([
-    { key: "rid", label: "RID", enabled: true },
-    { key: "requesterName", label: "ผู้ขอ", enabled: true },
-    { key: "company", label: "บริษัท", enabled: true },
-    { key: "jobType", label: "ประเภทงาน", enabled: true },
-    { key: "floor", label: "ชั้น", enabled: true },
-    { key: "area", label: "พื้นที่", enabled: true },
-    { key: "dateShown", label: "วันที่ยื่น", enabled: true },
-    { key: "status", label: "สถานะ", enabled: true },
-  ]);
 
   const counters = useMemo(() => {
     return items.reduce(
@@ -533,20 +484,18 @@ export default function Permits() {
         <input type="date" className="border rounded-lg px-3 py-2" value={from} onChange={(e)=>setFrom(e.target.value)} />
         <input type="date" className="border rounded-lg px-3 py-2" value={to} onChange={(e)=>setTo(e.target.value)} />
         <div className="flex gap-2">
-          <select className="border rounded-lg px-2 py-1 text-sm flex-1" value={sort} onChange={(e)=>setSort(e.target.value as any)}>
+          <select className="border rounded-lg px-3 py-2 flex-1" value={sort} onChange={(e)=>setSort(e.target.value as any)}>
             <option value="createdAt_desc">ล่าสุดก่อน</option>
             <option value="createdAt_asc">เก่าสุดก่อน</option>
           </select>
-          <button 
-            onClick={()=>loadList()} 
-            className="border rounded-lg px-2 py-1 text-sm hover:bg-gray-50" 
-            disabled={loading}
-          >
-            รีเฟรช
-          </button>
+          <button onClick={()=>loadList()} className="border rounded-lg px-3 py-2 hover:bg-gray-50" disabled={loading}>รีเฟรช</button>
           <button
-            onClick={()=>setShowCsvModal(true)}
-            className="border rounded-lg px-2 py-1 text-sm hover:bg-gray-50"
+            onClick={()=>{
+              const csv = rowsToCsv(pageRows);
+              const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
+              downloadCsv(`permits_page${page+1}_${stamp}.csv`, csv);
+            }}
+            className="border rounded-lg px-3 py-2 hover:bg-gray-50"
           >
             ส่งออก CSV
           </button>
@@ -622,35 +571,6 @@ export default function Permits() {
           </button>
         </div>
       </div>
-
-      {/* CSV Column Selector Modal */}
-      {showCsvModal && (
-        <CsvColumnSelector
-          columns={csvColumns}
-          onToggle={(key) => {
-            setCsvColumns(cols => 
-              cols.map(c => c.key === key ? { ...c, enabled: !c.enabled } : c)
-            );
-          }}
-          onSelectAll={() => {
-            setCsvColumns(cols => cols.map(c => ({ ...c, enabled: true })));
-          }}
-          onDeselectAll={() => {
-            setCsvColumns(cols => cols.map(c => ({ ...c, enabled: false })));
-          }}
-          onConfirm={() => {
-            const csv = rowsToCsv(pageRows, csvColumns);
-            if (!csv) {
-              alert("กรุณาเลือกคอลัมน์อย่างน้อย 1 คอลัมน์");
-              return;
-            }
-            const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
-            downloadCsv(`permits_page${page+1}_${stamp}.csv`, csv);
-            setShowCsvModal(false);
-          }}
-          onCancel={() => setShowCsvModal(false)}
-        />
-      )}
     </div>
   );
 }
