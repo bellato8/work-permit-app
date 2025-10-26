@@ -1,15 +1,15 @@
 // ======================================================================
 // ไฟล์: web/src/App.tsx
-// เวอร์ชัน: 2025-10-14 20:25 (Asia/Bangkok)
+// เวอร์ชัน: 2025-10-26 21:30 (Asia/Bangkok)
 // เปลี่ยนแปลงรอบนี้:
-//   • [ใหม่] ใส่ ErrorBoundary กัน "หน้าขาว" จาก runtime error (เช่น lazy import พัง)
-//   • [ปรับ] ห่อทุกหน้า lazy ด้วย <Page>(<Suspense/>) ให้มี fallback ชัดเจน
-//   • [ปรับ] onAuthStateChanged มี cleanup ถูกต้อง (กัน memory leak)
-//   • [คงเดิม] เส้นทาง Public/Admin ทั้งหมด + test routes: /__test__/admin-perms, /__test__/permission-editor, /__test__/checkbox-group
-// หมายเหตุ: หาก test pages ไม่มีไฟล์จริง จะเห็นข้อความชัดเจนแทนการหน้าขาว
-//
-// Updated: 2025-10-26  (เพิ่มเส้นทาง LP: internal-requests, permit-approvals, locations, internal-users)
+//   • [ใหม่] เส้นทาง Internal Portal: /internal/login, /internal/requests, /internal/requests/new
+//   • [ใหม่] คอมโพเนนต์ RequireAuthInternal (redirect ไป /internal/login)
+//   • [เพิ่ม] safeLazy imports สำหรับหน้า Internal (Login, RequestsDashboard, NewRequest)
+//   • [เพิ่ม] redirect /internal → /internal/requests
+//   • [คงเดิม] ErrorBoundary, Page(Suspense), RequireAuth(แอดมิน), Public/Admin/LP/Test routes ทั้งหมด
+// หมายเหตุ: ใช้หน้า Internal ที่ส่งให้ก่อนหน้า (Login.tsx, RequestsDashboard.tsx, NewRequest.tsx)
 // ผู้แก้ไข: เพื่อนคู่คิด
+// อัปเดตล่าสุด: 26/10/2025 21:30
 // ======================================================================
 
 import React, { useEffect, useState, Suspense, lazy } from "react";
@@ -97,6 +97,20 @@ const LP_InternalUsers = safeLazy(
   "LP/InternalUsersPage"
 );
 
+// ★★★ Internal Portal Pages (Module 1) — เพิ่มรอบนี้ ★★★
+const InternalLogin = safeLazy(
+  () => import("./pages/internal/Login"),
+  "Internal/Login"
+);
+const InternalRequestsDashboard = safeLazy(
+  () => import("./pages/internal/RequestsDashboard"),
+  "Internal/RequestsDashboard"
+);
+const InternalNewRequest = safeLazy(
+  () => import("./pages/internal/NewRequest"),
+  "Internal/NewRequest"
+);
+
 // ตั้งค่า Firebase จาก .env (Vite: import.meta.env.VITE_*)
 const getFirebaseConfig = () => ({
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY ?? "",
@@ -162,6 +176,25 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// ต้องล็อกอินก่อนเข้า /internal/**
+function RequireAuthInternal({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [ready, setReady] = useState(false);
+  const loc = useLocation();
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setReady(true);
+    });
+    return () => unsub(); // cleanup
+  }, []);
+
+  if (!ready) return <div className="p-6">กำลังโหลด…</div>;
+  if (!user)   return <Navigate to="/internal/login" state={{ from: loc }} replace />;
+  return <>{children}</>;
+}
+
 // ห่อ Suspense ตอนใช้คอมโพเนนต์ที่ lazy โหลด
 function Page({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<div className="p-6">กำลังโหลดหน้า…</div>}>{children}</Suspense>;
@@ -195,6 +228,26 @@ export default function App() {
 
           {/* หน้าทดสอบ Daily Operations Service */}
           <Route path="/test-daily" element={<TestDaily />} />
+
+          {/* -------- Internal Portal (Module 1) -------- */}
+          <Route path="/internal" element={<Navigate to="/internal/requests" replace />} />
+          <Route path="/internal/login" element={<Page><InternalLogin /></Page>} />
+          <Route
+            path="/internal/requests"
+            element={
+              <RequireAuthInternal>
+                <Page><InternalRequestsDashboard /></Page>
+              </RequireAuthInternal>
+            }
+          />
+          <Route
+            path="/internal/requests/new"
+            element={
+              <RequireAuthInternal>
+                <Page><InternalNewRequest /></Page>
+              </RequireAuthInternal>
+            }
+          />
 
           {/* -------- Test routes (dev only ก็ใช้ได้จริง; ถ้าไฟล์หายจะขึ้นข้อความแทน) -------- */}
           <Route path="/__test__/checkbox-group" element={<Page><TestCheckboxGroup /></Page>} />

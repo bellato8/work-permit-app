@@ -1,11 +1,13 @@
 // ======================================================================
 // File: functions/src/index.ts
-// เวอร์ชัน: 2025-10-24 (เพิ่ม export functions ที่หายไป)
-// หน้าที่: Export Cloud Functions (เฉพาะที่มีจริงและทำงานได้)
-// หมายเหตุ: การ "ส่งออก" ฟังก์ชันจากไฟล์นี้เป็นขั้นที่จำเป็น
-// เพื่อให้ Firebase รวมและเปิดเป็น HTTP endpoint หลัง deploy
-// อ้างอิง: ใช้ไฟล์ index.ts เป็นศูนย์รวมการ export ตามแนวทาง Firebase
-// https://firebase.google.com/docs/functions/typescript
+// เวอร์ชัน: 26/10/2025 22:45 (Asia/Bangkok)
+// หน้าที่: รวม/ส่งออก Cloud Functions ทั้งหมดให้ Firebase deploy เป็น endpoint
+// เปลี่ยนแปลงรอบนี้:
+//   • จัดหมวดหมู่ + คอมเมนต์ให้ชัดเจน
+//   • คง export ฟังก์ชันเดิมทั้งหมด และยืนยันการส่งออก createContractorLink (LP Module)
+// หมายเหตุ:
+//   • ห้าม export ไฟล์ที่ “ยังไม่มีจริง” เพราะจะทำให้ build ล้มเหลว
+//   • เมื่อพร้อม mockPermitSubmitted ค่อยมาเพิ่ม export ภายหลัง
 // ======================================================================
 
 // ==================== Admin Management ====================
@@ -54,3 +56,9 @@ export { onRequestUpdatedNotifyRequester } from "./onRequestUpdatedNotifyRequest
 export { ensureCreatedAt } from "./ensureCreatedAt";
 export { getStatus } from "./getStatus";
 
+// ==================== LP Module (Module 2) ====================
+// อนุมัติเบื้องต้น → สร้าง RID + อัปเดตสถานะ + คืน URL mock สำหรับผู้รับเหมา
+export { createContractorLink } from "./createContractorLink";
+
+// TODO (ภายหลัง): เมื่อไฟล์พร้อมให้เปิด export นี้
+// export { mockPermitSubmitted } from "./mockPermitSubmitted";
