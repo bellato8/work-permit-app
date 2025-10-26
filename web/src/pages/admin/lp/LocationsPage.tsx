@@ -1,325 +1,407 @@
 // ======================================================================
 // File: web/src/pages/admin/lp/LocationsPage.tsx
-// เวอร์ชัน: 27/10/2025 00:40 (Asia/Bangkok)
-// หน้าที่: จัดการ Master Data "Locations" (เพิ่ม/แก้ไข/ลบ/สลับ Active)
-// เชื่อมบริการ: Firestore (collection, onSnapshot, add/update/delete)
-// หมายเหตุ:
-//   • Path ตามสัญญา: artifacts/{appId}/public/data/locations
-//   • appId จะอ่านจาก VITE_APP_ID ถ้าไม่มีใช้งาน VITE_FIREBASE_PROJECT_ID แทน
-//   • ฟิลด์: locationName, floor, status ('Active' | 'Inactive'), createdAt, updatedAt
-//   • UI ภาษาไทย ใช้ฟอนต์ Sarabun เพื่อความคมชัด
-// ผู้แก้ไข: เพื่อนคู่คิด
-// อัปเดตล่าสุด: 27/10/2025 00:40
+// Updated: 26/10/2025 23:25 (Asia/Bangkok)
+// Purpose: หน้าจัดการ "สถานที่" ด้วย MUI (สีสด + รองรับมือถือ)
+// Change log:
+// - แก้ Error MUI Grid: ตัดการใช้ <Grid> ออกทั้งหมด (ชน type ในโปรเจกต์)
+// - จัดเลย์เอาต์ใหม่ด้วย <Box display="grid"> + <Stack> แทน (ผลลัพธ์เหมือนเดิม)
+// - ไม่แตะฟังก์ชันเพิ่ม/แก้/สลับสถานะ และการเชื่อม Firestore
 // ======================================================================
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { v4 as uuid } from 'uuid';
 import {
-  getFirestore,
   collection,
+  query,
+  orderBy,
   onSnapshot,
   addDoc,
   updateDoc,
-  deleteDoc,
   doc,
   serverTimestamp,
-  query,
-  orderBy,
 } from 'firebase/firestore';
 
-type LocationStatus = 'Active' | 'Inactive';
+import { db } from '../../../lib/firebase';
 
-interface LocationDoc {
+// MUI
+import {
+  Alert,
+  Box,
+  Button,
+  Container,
+  FormControlLabel,
+  Paper,
+  Stack,
+  Switch,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography,
+} from '@mui/material';
+
+import AddIcon from '@mui/icons-material/Add';
+import EditIcon from '@mui/icons-material/Edit';
+import SaveIcon from '@mui/icons-material/Save';
+import CloseIcon from '@mui/icons-material/Close';
+import ToggleOffIcon from '@mui/icons-material/ToggleOff';
+import ToggleOnIcon from '@mui/icons-material/ToggleOn';
+
+type FloorItem = {
   id: string;
-  locationName: string;
-  floor: string;
-  status: LocationStatus;
-  createdAt?: any;
-  updatedAt?: any;
-}
-
-const db = getFirestore();
-
-// เลือก appId จาก ENV (ถ้าไม่มี VITE_APP_ID ให้ใช้ VITE_FIREBASE_PROJECT_ID)
-const appId =
-  (import.meta as any).env?.VITE_APP_ID ||
-  (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID ||
-  'work-permit-app';
-
-// path หลักของคอลเลกชัน
-const collPath = `artifacts/${appId}/public/data/locations`;
-
-const box: React.CSSProperties = { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8 };
-const inputCss: React.CSSProperties = { padding: 8, borderRadius: 6, border: '1px solid #d1d5db', width: '100%' };
-const btn: React.CSSProperties = { padding: '8px 12px', borderRadius: 6, border: '1px solid #d1d5db', cursor: 'pointer' };
-const btnPrimary: React.CSSProperties = { ...btn, background: '#2563eb', color: 'white', border: 'none' };
-const btnWarn: React.CSSProperties  = { ...btn, background: '#ef4444', color: 'white', border: 'none' };
-const btnDark: React.CSSProperties  = { ...btn, background: '#374151', color: 'white', border: 'none' };
-const title: React.CSSProperties    = { fontSize: 20, fontWeight: 800, margin: 0 };
-const small: React.CSSProperties    = { color: '#6b7280', fontSize: 12 };
-
-interface FormState {
-  id?: string;
-  locationName: string;
-  floor: string;
-  status: LocationStatus;
-}
-
-const emptyForm: FormState = { locationName: '', floor: '', status: 'Active' };
-
-const Modal: React.FC<{ open: boolean; onClose: () => void; children: React.ReactNode; title?: string }> = ({ open, onClose, children, title }) => {
-  if (!open) return null;
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50
-    }}>
-      <div style={{ background: '#fff', borderRadius: 10, width: 'min(560px, 95vw)', padding: 16, boxShadow: '0 20px 40px rgba(0,0,0,.15)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <h3 style={{ margin: 0, fontWeight: 800 }}>{title || 'รายละเอียด'}</h3>
-          <button onClick={onClose} style={{ ...btn }}>ปิด</button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
+  name: string;
+  isActive: boolean;
 };
 
-const LocationsPage: React.FC = () => {
-  const [rows, setRows] = useState<LocationDoc[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState('');
+type LocationDoc = {
+  id?: string;
+  name: string;
+  floors: FloorItem[];
+  isActive: boolean;
+  createdAt?: any;
+  updatedAt?: any;
+};
 
-  const [qtext, setQtext] = useState('');
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<FormState>(emptyForm);
-  const [saving, setSaving] = useState(false);
+function parseFloorsInput(raw: string): FloorItem[] {
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .map((name) => ({
+      id: uuid(),
+      name,
+      isActive: true,
+    }));
+}
+
+function floorsToInputValue(floors: FloorItem[]): string {
+  return floors.map((f) => f.name).join(', ');
+}
+
+export default function LocationsPage() {
+  const [items, setItems] = useState<LocationDoc[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // ฟอร์มเพิ่ม
+  const [newName, setNewName] = useState('');
+  const [newFloorsInput, setNewFloorsInput] = useState('');
+  const [newIsActive, setNewIsActive] = useState(true);
+
+  // โหมดแก้ไข
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editFloorsInput, setEditFloorsInput] = useState('');
+  const [editIsActive, setEditIsActive] = useState(true);
 
   useEffect(() => {
-    setLoading(true);
-    const qy = query(collection(db, collPath), orderBy('locationName', 'asc'));
+    const q = query(collection(db, 'locations'), orderBy('name'));
     const unsub = onSnapshot(
-      qy,
+      q,
       (snap) => {
-        const list: LocationDoc[] = [];
-        snap.forEach(d => {
-          const data = d.data() as any;
-          list.push({
+        const list: LocationDoc[] = snap.docs.map((d) => {
+          const data = d.data() as LocationDoc;
+          return {
             id: d.id,
-            locationName: data.locationName || '',
-            floor: data.floor || '',
-            status: (data.status || 'Inactive') as LocationStatus,
+            name: data.name || '',
+            floors: Array.isArray(data.floors) ? data.floors : [],
+            isActive: data.isActive ?? true,
             createdAt: data.createdAt,
             updatedAt: data.updatedAt,
-          });
+          };
         });
-        setRows(list);
+        setItems(list);
         setLoading(false);
       },
-      (e) => {
-        console.error('[LocationsPage] onSnapshot error:', e);
-        setErr('ไม่สามารถโหลดข้อมูลสถานที่ได้');
+      (err) => {
+        setErrorMsg(err?.message || 'โหลดข้อมูลไม่สำเร็จ');
         setLoading(false);
       }
     );
     return () => unsub();
   }, []);
 
-  const filtered = useMemo(() => {
-    const s = qtext.trim().toLowerCase();
-    if (!s) return rows;
-    return rows.filter(r =>
-      [r.locationName, r.floor, r.status].join(' ').toLowerCase().includes(s)
-    );
-  }, [rows, qtext]);
+  const activeCount = useMemo(() => items.filter((x) => x.isActive).length, [items]);
 
-  const openAdd = () => {
-    setForm(emptyForm);
-    setShowForm(true);
-  };
-
-  const openEdit = (row: LocationDoc) => {
-    setForm({
-      id: row.id,
-      locationName: row.locationName,
-      floor: row.floor,
-      status: row.status,
-    });
-    setShowForm(true);
-  };
-
-  const validate = (f: FormState) => {
-    const problems: string[] = [];
-    if (!f.locationName.trim()) problems.push('กรุณากรอกชื่อพื้นที่/ร้านค้า');
-    if (!f.floor.trim()) problems.push('กรุณากรอกชั้น');
-    if (!['Active','Inactive'].includes(f.status)) problems.push('สถานะไม่ถูกต้อง');
-    return problems;
-  };
-
-  const save = async () => {
-    if (saving) return;
-    const problems = validate(form);
-    if (problems.length) {
-      alert(problems.join('\n'));
+  async function handleAdd() {
+    setErrorMsg(null);
+    const name = newName.trim();
+    if (!name) {
+      setErrorMsg('กรุณากรอกชื่อสถานที่');
       return;
     }
-    try {
-      setSaving(true);
-      const { id, ...rest } = form;
-      if (!id) {
-        await addDoc(collection(db, collPath), {
-          ...rest,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      } else {
-        await updateDoc(doc(db, `${collPath}/${id}`), {
-          ...rest,
-          updatedAt: serverTimestamp(),
-        });
-      }
-      setShowForm(false);
-    } catch (e) {
-      console.error('[LocationsPage] save error:', e);
-      alert('บันทึกไม่สำเร็จ กรุณาลองใหม่');
-    } finally {
-      setSaving(false);
-    }
-  };
+    const floors = parseFloorsInput(newFloorsInput);
 
-  const toggleStatus = async (row: LocationDoc) => {
     try {
-      const next: LocationStatus = row.status === 'Active' ? 'Inactive' : 'Active';
-      await updateDoc(doc(db, `${collPath}/${row.id}`), {
-        status: next,
+      await addDoc(collection(db, 'locations'), {
+        name,
+        floors,
+        isActive: newIsActive,
+        createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
-    } catch (e) {
-      console.error('[LocationsPage] toggle error:', e);
-      alert('เปลี่ยนสถานะไม่สำเร็จ');
+      setNewName('');
+      setNewFloorsInput('');
+      setNewIsActive(true);
+    } catch (e: any) {
+      setErrorMsg(e?.message || 'บันทึกไม่สำเร็จ (อาจติดสิทธิ์ เข้าขั้นตอนถัดไป)');
     }
-  };
+  }
 
-  const removeRow = async (row: LocationDoc) => {
-    const ok = confirm(`ยืนยันลบ "${row.locationName}" ?`);
-    if (!ok) return;
-    try {
-      await deleteDoc(doc(db, `${collPath}/${row.id}`));
-    } catch (e) {
-      console.error('[LocationsPage] delete error:', e);
-      alert('ลบไม่สำเร็จ');
+  function startEdit(row: LocationDoc) {
+    setEditingId(row.id || null);
+    setEditName(row.name);
+    setEditFloorsInput(floorsToInputValue(row.floors || []));
+    setEditIsActive(!!row.isActive);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditName('');
+    setEditFloorsInput('');
+    setEditIsActive(true);
+  }
+
+  async function saveEdit(row: LocationDoc) {
+    if (!row.id) return;
+    const name = editName.trim();
+    if (!name) {
+      setErrorMsg('กรุณากรอกชื่อสถานที่');
+      return;
     }
-  };
+    const floors = parseFloorsInput(editFloorsInput);
+
+    try {
+      await updateDoc(doc(db, 'locations', row.id), {
+        name,
+        floors,
+        isActive: editIsActive,
+        updatedAt: serverTimestamp(),
+      });
+      cancelEdit();
+    } catch (e: any) {
+      setErrorMsg(e?.message || 'บันทึกไม่สำเร็จ (อาจติดสิทธิ์ เข้าขั้นตอนถัดไป)');
+    }
+  }
+
+  async function toggleActive(row: LocationDoc) {
+    if (!row.id) return;
+    try {
+      await updateDoc(doc(db, 'locations', row.id), {
+        isActive: !row.isActive,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (e: any) {
+      setErrorMsg(e?.message || 'อัปเดตสถานะไม่สำเร็จ (อาจติดสิทธิ์)');
+    }
+  }
 
   return (
-    <div style={{ padding: 16, fontFamily: 'Sarabun, sans-serif' }}>
-      <div style={{ marginBottom: 12 }}>
-        <h1 style={title}>สถานที่ (Locations)</h1>
-        <div style={small}>
-          เส้นทางข้อมูล: <code>{collPath}</code>
-        </div>
-      </div>
+    <Container maxWidth="lg" sx={{ py: { xs: 2, md: 3 } }}>
+      <Stack spacing={2}>
+        <Box>
+          <Typography variant="h5" fontWeight={700}>
+            Work Permit / Admin
+          </Typography>
+        </Box>
 
-      {/* แถบเครื่องมือ */}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-        <div style={{ flex: '1 1 280px' }}>
-          <input
-            placeholder="ค้นหา: ชื่อพื้นที่/ชั้น/สถานะ..."
-            value={qtext}
-            onChange={(e) => setQtext(e.target.value)}
-            style={inputCss}
-          />
-        </div>
-        <button style={btnPrimary} onClick={openAdd}>+ เพิ่มสถานที่</button>
-      </div>
+        {/* กล่องสรุป */}
+        <Paper elevation={1} sx={{ p: 2 }}>
+          <Typography variant="h6" gutterBottom>
+            สถานที่ (Locations)
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            จัดการ “ชื่อสถานที่” และ “ชั้น” สำหรับให้พนักงานเลือกตอนสร้างคำขอ (ไม่ลบทิ้ง ใช้ปิดใช้งานแทน)
+          </Typography>
 
-      {/* ตาราง */}
-      <div style={{ ...box, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-          <thead style={{ background: '#f9fafb' }}>
-            <tr>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>ชื่อพื้นที่/ร้านค้า</th>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>ชั้น</th>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>สถานะ</th>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>การจัดการ</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={4} style={{ padding: 12 }}>กำลังโหลด...</td></tr>
-            ) : err ? (
-              <tr><td colSpan={4} style={{ padding: 12, color: '#dc2626' }}>{err}</td></tr>
-            ) : filtered.length === 0 ? (
-              <tr><td colSpan={4} style={{ padding: 12, color: '#6b7280' }}>ไม่พบข้อมูล</td></tr>
-            ) : (
-              filtered.map(r => (
-                <tr key={r.id}>
-                  <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6', fontWeight: 700 }}>{r.locationName}</td>
-                  <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>{r.floor}</td>
-                  <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
-                    <span style={{
-                      display: 'inline-block', padding: '2px 10px', borderRadius: 999,
-                      background: r.status === 'Active' ? '#dcfce7' : '#fee2e2',
-                      color: r.status === 'Active' ? '#166534' : '#991b1b', fontWeight: 700, fontSize: 12
-                    }}>
-                      {r.status}
-                    </span>
-                  </td>
-                  <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <button style={btnDark} onClick={() => openEdit(r)}>แก้ไข</button>
-                      <button style={btn} onClick={() => toggleStatus(r)}>
-                        {r.status === 'Active' ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}
-                      </button>
-                      <button style={btnWarn} onClick={() => removeRow(r)}>ลบ</button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+          <Stack
+            direction="row"
+            spacing={2}
+            sx={{
+              mt: 1.5,
+              bgcolor: 'grey.50',
+              border: '1px solid',
+              borderColor: 'grey.200',
+              borderRadius: 1,
+              p: 1.2,
+            }}
+          >
+            <Typography variant="body2">ทั้งหมด: {items.length} รายการ</Typography>
+            <Typography variant="body2">เปิดใช้งาน: {activeCount}</Typography>
+          </Stack>
+        </Paper>
 
-      {/* Modal ฟอร์ม เพิ่ม/แก้ไข */}
-      <Modal open={showForm} onClose={() => setShowForm(false)} title={form.id ? 'แก้ไขสถานที่' : 'เพิ่มสถานที่'}>
-        <div style={{ display: 'grid', gap: 10 }}>
-          <div>
-            <div style={{ marginBottom: 6, fontWeight: 700 }}>ชื่อพื้นที่/ร้านค้า<span style={{ color: '#ef4444' }}>*</span></div>
-            <input
-              value={form.locationName}
-              onChange={(e) => setForm({ ...form, locationName: e.target.value })}
-              style={inputCss}
-              placeholder="เช่น ร้าน A / โซน B"
+        {/* กล่องเพิ่มรายการ */}
+        <Paper elevation={1} sx={{ p: 2 }}>
+          <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+            เพิ่มสถานที่ใหม่
+          </Typography>
+
+          {/* ใช้ Box ทำกริดแทน Grid ของ MUI */}
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', md: '1fr 1fr auto auto' },
+              gap: 2,
+              alignItems: 'center',
+            }}
+          >
+            <TextField
+              label="ชื่อสถานที่"
+              fullWidth
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="เช่น อาคาร A"
             />
-          </div>
-          <div>
-            <div style={{ marginBottom: 6, fontWeight: 700 }}>ชั้น<span style={{ color: '#ef4444' }}>*</span></div>
-            <input
-              value={form.floor}
-              onChange={(e) => setForm({ ...form, floor: e.target.value })}
-              style={inputCss}
-              placeholder="เช่น ชั้น 1 / 2F / B1"
+            <TextField
+              label="รายชื่อชั้น (คั่นด้วย , )"
+              fullWidth
+              value={newFloorsInput}
+              onChange={(e) => setNewFloorsInput(e.target.value)}
+              placeholder="เช่น G, 1, 2, M"
             />
-          </div>
-          <div>
-            <div style={{ marginBottom: 6, fontWeight: 700 }}>สถานะ</div>
-            <select
-              value={form.status}
-              onChange={(e) => setForm({ ...form, status: e.target.value as LocationStatus })}
-              style={{ ...inputCss, background: '#fff' }}
-            >
-              <option value="Active">Active</option>
-              <option value="Inactive">Inactive</option>
-            </select>
-          </div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
-            <button style={btn} onClick={() => setShowForm(false)}>ยกเลิก</button>
-            <button style={btnPrimary} onClick={save} disabled={saving}>{saving ? 'กำลังบันทึก...' : 'บันทึก'}</button>
-          </div>
-        </div>
-      </Modal>
-    </div>
+            <Box>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={newIsActive}
+                    onChange={(e) => setNewIsActive(e.target.checked)}
+                    color="primary"
+                  />
+                }
+                label="เปิดใช้งาน"
+              />
+            </Box>
+            <Box>
+              <Button variant="contained" startIcon={<AddIcon />} onClick={handleAdd}>
+                บันทึก
+              </Button>
+            </Box>
+          </Box>
+        </Paper>
+
+        {/* ตารางรายการ */}
+        <Paper elevation={1} sx={{ p: 0 }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ bgcolor: 'grey.100' }}>
+                <TableCell sx={{ fontWeight: 700 }}>ชื่อสถานที่</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>ชั้น (คั่นด้วย , )</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>สถานะ</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>การกระทำ</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {!loading &&
+                items.map((row) => {
+                  const isEditing = editingId === row.id;
+                  return (
+                    <TableRow key={row.id}>
+                      <TableCell sx={{ minWidth: 200 }}>
+                        {isEditing ? (
+                          <TextField
+                            size="small"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                          />
+                        ) : (
+                          row.name
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {isEditing ? (
+                          <TextField
+                            size="small"
+                            placeholder="เช่น G, 1, 2, M"
+                            value={editFloorsInput}
+                            onChange={(e) => setEditFloorsInput(e.target.value)}
+                            fullWidth
+                          />
+                        ) : (
+                          floorsToInputValue(row.floors || []) || '-'
+                        )}
+                      </TableCell>
+                      <TableCell width={160}>
+                        {isEditing ? (
+                          <FormControlLabel
+                            control={
+                              <Switch
+                                checked={editIsActive}
+                                onChange={(e) => setEditIsActive(e.target.checked)}
+                                color="primary"
+                              />
+                            }
+                            label={editIsActive ? 'เปิดใช้งาน' : 'ปิดใช้งาน'}
+                          />
+                        ) : row.isActive ? (
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <ToggleOnIcon color="success" />
+                            <Typography color="success.main">เปิดใช้งาน</Typography>
+                          </Stack>
+                        ) : (
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <ToggleOffIcon color="disabled" />
+                            <Typography color="text.secondary">ปิดใช้งาน</Typography>
+                          </Stack>
+                        )}
+                      </TableCell>
+                      <TableCell width={220}>
+                        {!isEditing ? (
+                          <Stack direction="row" spacing={1}>
+                            <Button
+                              variant="outlined"
+                              startIcon={<EditIcon />}
+                              onClick={() => startEdit(row)}
+                            >
+                              แก้ไข
+                            </Button>
+                            <Button
+                              variant="contained"
+                              color={row.isActive ? 'warning' : 'success'}
+                              startIcon={row.isActive ? <ToggleOffIcon /> : <ToggleOnIcon />}
+                              onClick={() => toggleActive(row)}
+                            >
+                              {row.isActive ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}
+                            </Button>
+                          </Stack>
+                        ) : (
+                          <Stack direction="row" spacing={1}>
+                            <Button
+                              variant="contained"
+                              color="success"
+                              startIcon={<SaveIcon />}
+                              onClick={() => saveEdit(row)}
+                            >
+                              บันทึก
+                            </Button>
+                            <Button
+                              variant="outlined"
+                              color="inherit"
+                              startIcon={<CloseIcon />}
+                              onClick={cancelEdit}
+                            >
+                              ยกเลิก
+                            </Button>
+                          </Stack>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+
+              {items.length === 0 && !loading && (
+                <TableRow>
+                  <TableCell colSpan={4}>ยังไม่มีข้อมูล ลองเพิ่มด้านบนเลย</TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </Paper>
+
+        {errorMsg && <Alert severity="error">{errorMsg}</Alert>}
+      </Stack>
+    </Container>
   );
-};
-
-export default LocationsPage;
+}

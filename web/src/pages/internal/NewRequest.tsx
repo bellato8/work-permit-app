@@ -1,352 +1,417 @@
 // ======================================================================
 // File: web/src/pages/internal/NewRequest.tsx
-// เวอร์ชัน: 26/10/2025 21:05 (Asia/Bangkok)
-// หน้าที่: แบบฟอร์มสร้างคำขอใหม่ของพนักงานภายใน → เขียนเอกสารไปที่ internal_requests ของผู้ใช้คนนั้น
-// เชื่อม auth ผ่าน "อะแดปเตอร์": Firebase Auth/Firestore (ต้อง init แอปไว้แล้ว)
-// หมายเหตุ: เลือกพื้นที่จาก Master Data (Active เท่านั้น), เติมชั้นอัตโนมัติ, validate start < end,
-//           เก็บเวลาเป็นสตริง ISO ตามแนวทางของโปรเจกต์, status เริ่มต้น = "รอดำเนินการ"
-// วันที/เดือน/ปี เวลา: 26/10/2025 21:05
+// เวอร์ชัน: 26/10/2025 22:30 (Asia/Bangkok)
+// หน้าที่: ฟอร์มส่งคำขอใหม่ของพนักงานภายใน — เลือกสถานที่ → ระบบโชว์ “ชั้น” ให้เลือกอัตโนมัติ → กรอกข้อมูลสั้น ๆ → บันทึกคำขอ
+// เชื่อม Firestore ตาม “สัญญา”: artifacts/{appId}/users/{userId}/internal_requests
+// หมายเหตุ:
+// - อ่านรายชื่อสถานที่จากตำแหน่งหลัก: artifacts/{appId}/public/data/locations
+//   และมีโหมดสำรอง: collections/locations (เพื่อรองรับข้อมูลเก่าที่เพื่อนทดสอบไว้ก่อนหน้า)
+// - สถานะเริ่มต้นของคำขอ: "รอดำเนินการ"
 // ======================================================================
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
+import { useNavigate } from 'react-router-dom';
 import {
-  getFirestore,
-  collection,
   addDoc,
-  serverTimestamp,
-  getDocs,
-  query,
-  where,
+  collection,
+  collectionGroup,
+  doc,
+  onSnapshot,
   orderBy,
+  query,
+  serverTimestamp,
+  where,
+  getDocs,
 } from 'firebase/firestore';
+import { db, auth, app } from '../../lib/firebase';
+import { getAuth } from 'firebase/auth';
 
-// -----------------------------
-// ประเภทข้อมูล
-// -----------------------------
-type LocationStatus = 'Active' | 'Inactive';
+// ---------- ประเภทข้อมูลแบบเรียบง่าย ----------
+type FloorOption = { id: string; name: string; isActive?: boolean };
 
-interface LocationDoc {
+type LocationRow = {
   id: string;
-  locationName: string;
-  floor: string;
-  status: LocationStatus;
+  locationName?: string;    // กรณีสัญญาหลัก
+  floor?: any;              // อาจเป็นสตริง "G,1,2" หรืออาเรย์
+  status?: string;          // "Active"/"Inactive"
+  // กรณีเดิมที่ทำไว้ก่อน (ตำแหน่งสำรอง)
+  name?: string;            // ต้นแบบเดิมเก็บเป็น name
+  floors?: FloorOption[];   // ต้นแบบเดิมเก็บเป็น floors[]
+  isActive?: boolean;
+};
+
+// ---------- ค่าตั้งต้น ----------
+const APP_ID = import.meta.env.VITE_APP_ID || 'default'; // ระบุ appId ใน .env (Vite) ถ้าไม่ตั้ง ใช้ 'default'
+const COLLECTION_LOCATIONS_PRIMARY = `artifacts/${APP_ID}/public/data/locations`;
+const COLLECTION_INTERNAL_REQUESTS_BASE = `artifacts/${APP_ID}/users`;
+
+// ใช้สำหรับอ่านข้อมูลเก่าที่อยู่ตำแหน่งสำรอง (รอบก่อนทำไว้เพื่อให้ทดสอบไว)
+const COLLECTION_LOCATIONS_FALLBACK = `locations`;
+
+// แปลง floors (ที่อาจมาได้หลายรูปแบบ) → อาเรย์ FloorOption แบบเดียวกัน
+function normalizeFloors(row: LocationRow): FloorOption[] {
+  // เคสใหม่ตามสัญญา: อาจเก็บ floor เป็น string "G,1,2" หรือ array ของ string
+  if (row.floor && Array.isArray(row.floor)) {
+    // array ของ string
+    return (row.floor as any[])
+      .map((s) => String(s).trim())
+      .filter((s) => s.length > 0)
+      .map((name) => ({ id: name, name, isActive: true }));
+  }
+  if (row.floor && typeof row.floor === 'string') {
+    return String(row.floor)
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+      .map((name) => ({ id: name, name, isActive: true }));
+  }
+
+  // เคสสำรอง: โครงที่ทำไว้ก่อนหน้า (มี floors: FloorOption[])
+  if (Array.isArray(row.floors)) {
+    return row.floors.map((f) => ({
+      id: f.id || f.name,
+      name: f.name,
+      isActive: f.isActive ?? true,
+    }));
+  }
+
+  return [];
 }
 
-type InternalStatus =
-  | 'รอดำเนินการ'
-  | 'LP รับทราบ (รอผู้รับเหมา)'
-  | 'รอ LP ตรวจสอบ'
-  | 'อนุมัติเข้าทำงาน'
-  | 'ไม่อนุมัติ';
-
-// -----------------------------
-// Utils/Config
-// -----------------------------
-const auth = getAuth();
-const db = getFirestore();
-
-const APP_ID =
-  (import.meta as any).env?.VITE_APP_ID ||
-  (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID ||
-  'demo-app';
-
-const LOCATIONS_PATH = `artifacts/${APP_ID}/public/data/locations`;
-
-// เก็บเวลาเป็นสตริง ISO (UTC) ตามแนวทางของโปรเจกต์
-function toISO(dtLocal: string): string {
-  // dtLocal มาจาก <input type="datetime-local"> เช่น "2025-10-26T13:30"
-  // แปลงเป็น Date (สมมุติเวลาเป็น local timezone ของผู้ใช้) แล้ว toISOString()
-  const d = new Date(dtLocal);
-  return d.toISOString();
+function extractLocationName(row: LocationRow): string {
+  // ชื่อสถานที่จากสัญญาใหม่ หรือชื่อเดิมที่เคยใช้
+  return row.locationName || row.name || '(ไม่มีชื่อ)';
 }
 
-// -----------------------------
-// คอมโพเนนต์หลัก
-// -----------------------------
-const NewRequest: React.FC = () => {
+function isRowActive(row: LocationRow): boolean {
+  // มาตรฐานใหม่ใช้ status = "Active"/"Inactive"; ของเดิมใช้ isActive: boolean
+  if (typeof row.isActive === 'boolean') return row.isActive;
+  if (typeof row.status === 'string') return row.status.toLowerCase() === 'active';
+  return true;
+}
+
+// ---------- คอมโพเนนต์หลัก ----------
+export default function NewRequest() {
   const navigate = useNavigate();
-  const [user, setUser] = useState<User | null>(null);
+  const authInst = auth || getAuth(app);
 
-  // ฟอร์ม
-  const [locationId, setLocationId] = useState('');
-  const [shopName, setShopName] = useState('');
-  const [floor, setFloor] = useState('');
+  // สถานที่ + ชั้น (โหลดจากฐานข้อมูล)
+  const [locations, setLocations] = useState<LocationRow[]>([]);
+  const [loadingLocs, setLoadingLocs] = useState(true);
+
+  // ค่าที่ผู้ใช้เลือก/กรอก
+  const [selectedLocationId, setSelectedLocationId] = useState('');
+  const [selectedFloor, setSelectedFloor] = useState('');
   const [workDetails, setWorkDetails] = useState('');
-  const [startAt, setStartAt] = useState(''); // datetime-local
-  const [endAt, setEndAt] = useState('');     // datetime-local
-  const [contractorName, setContractorName] = useState('');
+  const [workStartAt, setWorkStartAt] = useState('');
+  const [workEndAt, setWorkEndAt] = useState('');
+  const [contractorCompany, setContractorCompany] = useState('');
+  const [contractorContactName, setContractorContactName] = useState('');
   const [contractorContactPhone, setContractorContactPhone] = useState('');
+  const [shopName, setShopName] = useState(''); // เผื่อบางเคสต้องระบุชื่อร้าน/พื้นที่ย่อย
 
-  // master data
-  const [locations, setLocations] = useState<LocationDoc[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState('');
+  // แจ้งเตือน/สถานะการบันทึก
+  const [submitting, setSubmitting] = useState(false);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
 
-  // ตรวจล็อกอิน
+  // โหลดสถานที่จากตำแหน่งหลัก ตามสัญญา; ถ้าไม่พบ จะลองตำแหน่งสำรอง
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
-      if (!u) {
-        navigate('/internal/login', { replace: true });
-        return;
-      }
-      setUser(u);
-    });
-    return () => unsub();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let unsubPrimary: any;
+    let triedFallback = false;
+
+    const loadPrimary = () => {
+      const q = query(collection(db, COLLECTION_LOCATIONS_PRIMARY), orderBy('locationName'));
+      unsubPrimary = onSnapshot(
+        q,
+        (snap) => {
+          const arr: LocationRow[] = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+          if (arr.length > 0) {
+            setLocations(arr.filter(isRowActive));
+            setLoadingLocs(false);
+          } else {
+            // ถ้าไม่มีข้อมูลเลย ลองตำแหน่งสำรอง
+            if (!triedFallback) {
+              triedFallback = true;
+              loadFallback();
+            } else {
+              setLocations([]);
+              setLoadingLocs(false);
+            }
+          }
+        },
+        (err) => {
+          // ถ้าพัง ให้ลองตำแหน่งสำรองต่อ
+          if (!triedFallback) {
+            triedFallback = true;
+            loadFallback();
+          } else {
+            setErrMsg(err?.message || 'โหลดสถานที่ไม่สำเร็จ');
+            setLoadingLocs(false);
+          }
+        }
+      );
+    };
+
+    const loadFallback = () => {
+      const q2 = query(collection(db, COLLECTION_LOCATIONS_FALLBACK), orderBy('name'));
+      const unsub = onSnapshot(
+        q2,
+        (snap) => {
+          const arr: LocationRow[] = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+          setLocations(arr.filter(isRowActive));
+          setLoadingLocs(false);
+        },
+        (err) => {
+          setErrMsg(err?.message || 'โหลดสถานที่ (สำรอง) ไม่สำเร็จ');
+          setLoadingLocs(false);
+        }
+      );
+    };
+
+    loadPrimary();
+    return () => {
+      if (typeof unsubPrimary === 'function') unsubPrimary();
+    };
   }, []);
 
-  // โหลด locations (เฉพาะ Active)
-  useEffect(() => {
-    let cancel = false;
-    (async () => {
-      try {
-        const colRef = collection(db, LOCATIONS_PATH);
-        const qy = query(colRef, where('status', '==', 'Active'), orderBy('locationName'));
-        const snap = await getDocs(qy);
-        const list: LocationDoc[] = snap.docs.map((d) => {
-          const data = d.data() as any;
-          return {
-            id: d.id,
-            locationName: data.locationName,
-            floor: data.floor,
-            status: data.status,
-          };
-        });
-        if (!cancel) setLocations(list);
-      } catch (e) {
-        console.error('[NewRequest] load locations error:', e);
-        if (!cancel) setErr('ไม่สามารถโหลดรายชื่อสถานที่ได้');
-      } finally {
-        if (!cancel) setLoading(false);
-      }
-    })();
-    return () => { cancel = true; };
-  }, []);
+  // ชั้นที่ใช้เลือก จะขึ้นกับสถานที่ที่เลือก
+  const floorOptions = useMemo<FloorOption[]>(() => {
+    const row = locations.find((x) => x.id === selectedLocationId);
+    if (!row) return [];
+    return normalizeFloors(row).filter((f) => f.isActive !== false);
+  }, [locations, selectedLocationId]);
 
-  // เมื่อเลือก location → เติม shopName/floor อัตโนมัติ
-  useEffect(() => {
-    const loc = locations.find((x) => x.id === locationId);
-    if (loc) {
-      setShopName(loc.locationName || '');
-      setFloor(loc.floor || '');
-    } else {
-      setShopName('');
-      setFloor('');
+  // ฟังก์ชันช่วย
+  function validate(): string | null {
+    if (!selectedLocationId) return 'กรุณาเลือกสถานที่';
+    if (!selectedFloor) return 'กรุณาเลือกชั้น';
+    if (!workStartAt || !workEndAt) return 'กรุณากรอกเวลาเริ่มและสิ้นสุด';
+    const start = new Date(workStartAt).getTime();
+    const end = new Date(workEndAt).getTime();
+    if (isFinite(start) && isFinite(end) && start >= end) {
+      return 'เวลาเริ่มต้องน้อยกว่าเวลาสิ้นสุด';
     }
-  }, [locationId, locations]);
-
-  // ตรวจความถูกต้อง
-  const validate = (): string | null => {
-    if (!locationId) return 'กรุณาเลือกพื้นที่/ร้านค้า';
-    if (!workDetails.trim()) return 'กรุณาระบุวัตถุประสงค์/รายละเอียดงาน';
-    if (!startAt) return 'กรุณาระบุเวลาเริ่มต้น';
-    if (!endAt) return 'กรุณาระบุเวลาสิ้นสุด';
-    const startISO = toISO(startAt);
-    const endISO = toISO(endAt);
-    if (new Date(startISO) >= new Date(endISO)) return 'เวลาเริ่มต้องน้อยกว่าเวลาสิ้นสุด';
-    if (!contractorName.trim()) return 'กรุณาระบุชื่อบริษัทผู้รับเหมา';
-    if (!contractorContactPhone.trim()) return 'กรุณาระบุเบอร์ติดต่อผู้ประสานงานผู้รับเหมา';
+    if (!workDetails.trim()) return 'กรุณากรอกรายละเอียดงานโดยย่อ';
     return null;
-  };
+  }
 
-  const handleSubmit: React.FormEventHandler = async (e) => {
-    e.preventDefault();
-    if (saving || !user) return;
-
-    setErr('');
-    const v = validate();
-    if (v) {
-      setErr(v);
+  async function handleSubmit() {
+    setErrMsg(null);
+    const err = validate();
+    if (err) {
+      setErrMsg(err);
       return;
     }
 
-    try {
-      setSaving(true);
-      const startISO = toISO(startAt);
-      const endISO = toISO(endAt);
-
-      const colPath = `artifacts/${APP_ID}/users/${user.uid}/internal_requests`;
-      await addDoc(collection(db, colPath), {
-        requesterEmail: user.email || '',
-        locationId,
-        shopName, // denormalized
-        floor,    // denormalized
-        workDetails: workDetails.trim(),
-        workStartDateTime: startISO, // เก็บเป็น ISO string
-        workEndDateTime: endISO,     // เก็บเป็น ISO string
-        contractorName: contractorName.trim(),
-        contractorContactPhone: contractorContactPhone.trim(),
-        status: 'รอดำเนินการ' as InternalStatus,
-        linkedPermitRID: null,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-
-      navigate('/internal/requests', { replace: true });
-    } catch (e) {
-      console.error('[NewRequest] submit error:', e);
-      setErr('บันทึกไม่สำเร็จ กรุณาลองใหม่');
-    } finally {
-      setSaving(false);
+    const user = authInst.currentUser;
+    if (!user) {
+      setErrMsg('ยังไม่ได้เข้าสู่ระบบ');
+      return;
     }
-  };
 
-  // สไตล์พื้นฐาน
-  const box: React.CSSProperties = { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 16 };
-  const input: React.CSSProperties = { padding: 10, borderRadius: 6, border: '1px solid #d1d5db', width: '100%' };
-  const label: React.CSSProperties = { fontSize: 12, marginBottom: 6 };
-  const title: React.CSSProperties = { fontSize: 20, fontWeight: 800, margin: 0 };
-  const btn: React.CSSProperties = { padding: '10px 12px', borderRadius: 6, border: '1px solid #d1d5db', cursor: 'pointer' };
-  const btnPrimary: React.CSSProperties = { ...btn, background: '#2563eb', color: 'white', border: 'none' };
-  const small: React.CSSProperties = { color: '#6b7280', fontSize: 12 };
+    // เตรียมข้อมูลที่จะบันทึก
+    const row = locations.find((x) => x.id === selectedLocationId);
+    const locationName = row ? extractLocationName(row) : '';
 
-  const locationOptions = useMemo(() => {
-    return locations.map((l) => ({ value: l.id, label: `${l.locationName} (ชั้น ${l.floor})` }));
-  }, [locations]);
+    const payload = {
+      requesterEmail: user.email || '',
+      locationId: selectedLocationId,
+      locationName, // เก็บซ้ำเพื่อค้นหาง่าย
+      shopName: shopName.trim() || null,
+      floor: selectedFloor,
+      workDetails: workDetails.trim(),
+      workStartAt: new Date(workStartAt).toISOString(),
+      workEndAt: new Date(workEndAt).toISOString(),
+      contractorCompany: contractorCompany.trim() || null,
+      contractorContactName: contractorContactName.trim() || null,
+      contractorContactPhone: contractorContactPhone.trim() || null,
+      status: 'รอดำเนินการ',
+      linkedPermitRID: null,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
 
+    try {
+      setSubmitting(true);
+      // เขียนลง artifacts/{appId}/users/{uid}/internal_requests
+      const col = collection(db, `${COLLECTION_INTERNAL_REQUESTS_BASE}/${user.uid}/internal_requests`);
+      await addDoc(col, payload);
+      // ไปหน้า Dashboard
+      navigate('/internal/requests');
+    } catch (e: any) {
+      setErrMsg(e?.message || 'บันทึกคำขอไม่สำเร็จ');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  // ---------- หน้าจอ ----------
   return (
-    <div style={{ padding: 16, fontFamily: 'Sarabun, sans-serif' }}>
-      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-        <div>
-          <h1 style={title}>สร้างคำขอใหม่</h1>
-          <div style={small}>
-            เลือกพื้นที่จาก Master Data (Active) → เติมชั้นอัตโนมัติ · บันทึกแล้วสถานะจะเป็น <b>“รอดำเนินการ”</b>
-          </div>
-        </div>
-        <div>
-          <Link to="/internal/requests" style={{ textDecoration: 'none' }}>
-            <button style={btn}>กลับไป “คำขอของฉัน”</button>
-          </Link>
+    <div style={{ maxWidth: 900, margin: '0 auto', padding: 16 }}>
+      <h1 style={{ marginBottom: 8 }}>ส่งคำขอใหม่</h1>
+      <p style={{ marginTop: 0 }}>
+        เลือก “สถานที่” ก่อน แล้วระบบจะแสดง “ชั้น” ของสถานที่นั้นให้เลือกอัตโนมัติ
+      </p>
+
+      {/* เลือกสถานที่ + ชั้น */}
+      <div
+        style={{
+          border: '1px solid #e5e5e5',
+          padding: 12,
+          borderRadius: 8,
+          marginBottom: 16,
+          background: '#fafafa',
+        }}
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <label style={{ display: 'flex', flexDirection: 'column' }}>
+            <span>สถานที่</span>
+            <select
+              value={selectedLocationId}
+              onChange={(e) => {
+                setSelectedLocationId(e.target.value);
+                setSelectedFloor('');
+              }}
+              disabled={loadingLocs}
+            >
+              <option value="" disabled>
+                {loadingLocs ? 'กำลังโหลด…' : '— เลือกสถานที่ —'}
+              </option>
+              {locations.map((loc) => (
+                <option key={loc.id} value={loc.id}>
+                  {extractLocationName(loc)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label style={{ display: 'flex', flexDirection: 'column' }}>
+            <span>ชั้น</span>
+            <select
+              value={selectedFloor}
+              onChange={(e) => setSelectedFloor(e.target.value)}
+              disabled={!selectedLocationId || floorOptions.length === 0}
+            >
+              <option value="" disabled>
+                {selectedLocationId
+                  ? floorOptions.length > 0
+                    ? '— เลือกชั้น —'
+                    : 'ไม่มีชั้นให้เลือก (ติดต่อผู้ดูแล)'
+                  : 'กรุณาเลือกสถานที่ก่อน'}
+              </option>
+              {floorOptions.map((f) => (
+                <option key={f.id} value={f.name}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </div>
 
-      {/* แจ้งเตือน/ข้อผิดพลาด */}
-      {err && (
-        <div style={{ ...box, background: '#fee2e2', borderColor: '#fecaca', color: '#991b1b', marginBottom: 12 }}>
-          {err}
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit}>
-        <div style={{ ...box, marginBottom: 12 }}>
-          <div style={{ marginBottom: 12 }}>
-            <div style={label}>พื้นที่/ร้านค้า *</div>
-            <select
-              value={locationId}
-              onChange={(e) => setLocationId(e.target.value)}
-              style={{ ...input, background: '#fff' }}
-              disabled={loading || locations.length === 0}
-              required
-            >
-              <option value="">{loading ? 'กำลังโหลด...' : '— เลือกพื้นที่ —'}</option>
-              {locationOptions.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-            {locations.length === 0 && !loading && (
-              <div style={{ ...small, marginTop: 6, color: '#b91c1c' }}>
-                ยังไม่มีข้อมูลสถานที่ (Active) — โปรดให้ LP เพิ่มในหน้า “Locations”
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div>
-              <div style={label}>ชื่อพื้นที่/ร้านค้า (อัตโนมัติ)</div>
-              <input value={shopName} style={{ ...input, background: '#f9fafb' }} disabled />
-            </div>
-            <div>
-              <div style={label}>ชั้น (อัตโนมัติ)</div>
-              <input value={floor} style={{ ...input, background: '#f9fafb' }} disabled />
-            </div>
-          </div>
-        </div>
-
-        <div style={{ ...box, marginBottom: 12 }}>
-          <div style={{ marginBottom: 12 }}>
-            <div style={label}>วัตถุประสงค์/รายละเอียดงาน *</div>
+      {/* รายละเอียดงาน + เวลา */}
+      <div
+        style={{
+          border: '1px solid #e5e5e5',
+          padding: 12,
+          borderRadius: 8,
+          marginBottom: 16,
+        }}
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12, marginBottom: 12 }}>
+          <label style={{ display: 'flex', flexDirection: 'column' }}>
+            <span>รายละเอียดงาน (สั้น ๆ)</span>
             <textarea
               value={workDetails}
               onChange={(e) => setWorkDetails(e.target.value)}
-              style={{ ...input, minHeight: 100, resize: 'vertical' }}
-              placeholder="อธิบายประเภทงาน สถานที่ภายใน จุดเสี่ยง หรือข้อควรระวัง"
-              required
+              placeholder="เช่น เปลี่ยนโคมไฟ/เดินสายไฟ/ตรวจระบบ"
+              rows={3}
             />
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div>
-              <div style={label}>วันที่/เวลา เริ่มต้น *</div>
-              <input
-                type="datetime-local"
-                value={startAt}
-                onChange={(e) => setStartAt(e.target.value)}
-                style={input}
-                required
-              />
-            </div>
-            <div>
-              <div style={label}>วันที่/เวลา สิ้นสุด *</div>
-              <input
-                type="datetime-local"
-                value={endAt}
-                onChange={(e) => setEndAt(e.target.value)}
-                style={input}
-                required
-              />
-            </div>
-          </div>
-          <div style={{ ...small, marginTop: 6 }}>
-            * ระบบจะเก็บเวลาเป็นสตริง ISO (UTC) — แสดงผลในแดชบอร์ดด้วยรูปแบบท้องถิ่น
-          </div>
+          </label>
         </div>
 
-        <div style={{ ...box, marginBottom: 12 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div>
-              <div style={label}>บริษัทผู้รับเหมา *</div>
-              <input
-                value={contractorName}
-                onChange={(e) => setContractorName(e.target.value)}
-                style={input}
-                required
-              />
-            </div>
-            <div>
-              <div style={label}>เบอร์ติดต่อผู้ประสานงานผู้รับเหมา *</div>
-              <input
-                value={contractorContactPhone}
-                onChange={(e) => setContractorContactPhone(e.target.value)}
-                style={input}
-                placeholder="เช่น 08x-xxx-xxxx"
-                required
-              />
-            </div>
-          </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <label style={{ display: 'flex', flexDirection: 'column' }}>
+            <span>วัน–เวลาเริ่ม</span>
+            <input
+              type="datetime-local"
+              value={workStartAt}
+              onChange={(e) => setWorkStartAt(e.target.value)}
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column' }}>
+            <span>วัน–เวลาสิ้นสุด</span>
+            <input
+              type="datetime-local"
+              value={workEndAt}
+              onChange={(e) => setWorkEndAt(e.target.value)}
+            />
+          </label>
+        </div>
+      </div>
+
+      {/* ข้อมูลผู้รับเหมา (ถ้ามี) และชื่อร้าน/พื้นที่ย่อย */}
+      <div
+        style={{
+          border: '1px solid #e5e5e5',
+          padding: 12,
+          borderRadius: 8,
+          marginBottom: 16,
+        }}
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+          <label style={{ display: 'flex', flexDirection: 'column' }}>
+            <span>ชื่อร้าน/พื้นที่ย่อย (ถ้ามี)</span>
+            <input
+              value={shopName}
+              onChange={(e) => setShopName(e.target.value)}
+              placeholder="เช่น ร้าน A หรือ พื้นที่คลัง 2"
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column' }}>
+            <span>บริษัทผู้รับเหมา (ถ้ามี)</span>
+            <input
+              value={contractorCompany}
+              onChange={(e) => setContractorCompany(e.target.value)}
+              placeholder="ชื่อบริษัท"
+            />
+          </label>
         </div>
 
-        <div style={{ ...box, marginBottom: 12 }}>
-          <div style={label}>ไฟล์แนบ (ถ้ามี)</div>
-          <input type="file" disabled style={{ ...input, background: '#f3f4f6' }} />
-          <div style={{ ...small, marginTop: 6 }}>
-            **ยังไม่เปิดอัปโหลดในขั้นนี้** — จะเปิดใช้งานเมื่อกำหนด <code>storage.rules</code> และโค้ดอัปโหลดในรอบถัดไป
-          </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <label style={{ display: 'flex', flexDirection: 'column' }}>
+            <span>ผู้ประสานงานผู้รับเหมา (ชื่อ)</span>
+            <input
+              value={contractorContactName}
+              onChange={(e) => setContractorContactName(e.target.value)}
+              placeholder="ชื่อ–นามสกุล"
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column' }}>
+            <span>ผู้ประสานงานผู้รับเหมา (โทร)</span>
+            <input
+              value={contractorContactPhone}
+              onChange={(e) => setContractorContactPhone(e.target.value)}
+              placeholder="เบอร์โทร"
+            />
+          </label>
         </div>
+      </div>
 
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <Link to="/internal/requests" style={{ textDecoration: 'none' }}>
-            <button type="button" style={btn}>ยกเลิก</button>
-          </Link>
-          <button type="submit" style={btnPrimary} disabled={saving || loading}>
-            {saving ? 'กำลังบันทึก...' : 'บันทึกคำขอ'}
-          </button>
-        </div>
-      </form>
+      {/* ปุ่มบันทึก + ข้อความแจ้งเตือน */}
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        <button onClick={handleSubmit} disabled={submitting}>
+          {submitting ? 'กำลังบันทึก…' : 'ส่งคำขอ'}
+        </button>
+        <button onClick={() => navigate('/internal/requests')} disabled={submitting}>
+          ย้อนกลับ
+        </button>
+        {errMsg && (
+          <span style={{ color: '#a30000' }}>
+            {errMsg}
+          </span>
+        )}
+      </div>
     </div>
   );
-};
-
-export default NewRequest;
+}
