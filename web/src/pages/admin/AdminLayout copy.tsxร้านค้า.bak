@@ -7,13 +7,6 @@
 //  - ใช้ filterVisibleMenus จาก rbacGuard
 //  - รองรับ fallback เมื่อไม่มี pagePermissions
 // เชื่อม auth ผ่าน "อะแดปเตอร์": ../../lib/auth และสิทธิ์สด: ../../hooks/useAuthzLive
-//
-// Updated: 2025-10-26 (เพิ่มเมนู Module 2 สำหรับ LP Admin ให้เห็นเฉพาะ superadmin)
-// Updated: 2025-10-26 (แก้ TS error: ถอด pageKey ออกจากเมนูใหม่ชั่วคราว + ใส่ตัวบอกชนิดผลลัพธ์ filterVisibleMenus)
-// ผู้แก้ไข: เพื่อนคู่คิด
-// หมายเหตุ:
-//   - ซ่อนเมนู Module 2 จากสิทธิ์อื่นด้วย requireSuperadmin: true ตามคำขอ
-//   - จะเติม pageKey ให้เมนูใหม่อีกครั้งในรอบที่เราขยายชนิด PageKey ที่ศูนย์กลาง
 // ======================================================================
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -42,11 +35,6 @@ import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
 import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
-
-// ★ ไอคอนที่เพิ่มสำหรับเมนู Module 2 (LP Admin)
-import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";           // อนุมัติใบอนุญาต
-import StoreMallDirectoryRoundedIcon from "@mui/icons-material/StoreMallDirectoryRounded"; // สถานที่
-import ListAltRoundedIcon from "@mui/icons-material/ListAltRounded";               // คิวคำขอภายใน
 
 // ---- Auth adapter ----
 import { getCurrentUser, signOut } from "../../lib/auth";
@@ -98,17 +86,7 @@ type NavItem = {
   label: string;
   icon: React.ReactNode;
   exact?: boolean;
-  // หมายเหตุ: pageKey ของเมนูเดิมยังคงใช้ได้ แต่สำหรับเมนู Module 2 เราถอดออกชั่วคราว
-  pageKey?:
-    | "dashboard"
-    | "approvals"
-    | "permits"
-    | "dailyWork"
-    | "reports"
-    | "users"
-    | "logs"
-    | "cleanup"
-    | "settings";
+  pageKey?: "dashboard" | "approvals" | "permits" | "dailyWork" | "reports" | "users" | "logs" | "cleanup" | "settings";
   requireSuperadmin?: boolean;
 };
 
@@ -126,36 +104,6 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/admin/reports",   label: "รายงาน",   icon: <BarChartRoundedIcon />,         pageKey: "reports" },
   { to: "/admin/logs",      label: "บันทึกการใช้งาน",      icon: <HistoryRoundedIcon />,          pageKey: "logs" },
   { to: "/admin/users",     label: "ผู้ใช้",     icon: <GroupRoundedIcon />,            pageKey: "users" },
-
-  // ------------------------------------------------------------------
-  // ★ กลุ่มเมนู Module 2 (LP Admin) — ซ่อนให้สิทธิ์อื่นก่อน (superadmin เท่านั้น)
-  //   - ถอด pageKey ชั่วคราว เพื่อไม่ชนชนิดกลาง (PageKey)
-  // ------------------------------------------------------------------
-  {
-    to: "/admin/lp/internal-requests",
-    label: "คิวคำขอภายใน",
-    icon: <ListAltRoundedIcon />,
-    requireSuperadmin: true,
-  },
-  {
-    to: "/admin/lp/permit-approvals",
-    label: "อนุมัติใบอนุญาต",
-    icon: <FactCheckRoundedIcon />,
-    requireSuperadmin: true,
-  },
-  {
-    to: "/admin/lp/locations",
-    label: "สถานที่ (Locations)",
-    icon: <StoreMallDirectoryRoundedIcon />,
-    requireSuperadmin: true,
-  },
-  {
-    to: "/admin/lp/internal-users",
-    label: "ผู้ใช้ภายใน",
-    icon: <GroupRoundedIcon />,
-    requireSuperadmin: true,
-  },
-
   {
     to: "/admin/cleanup",
     label: "ล้างข้อมูล",
@@ -275,9 +223,7 @@ export default function AdminLayout() {
 
   // กรองเมนูที่ผู้ใช้ "มีสิทธิ์เห็น" โดยใช้ filterVisibleMenus
   const allowedItems = useMemo(
-    () =>
-      // ตัวบอกชนิด: ยืนยันว่าเมนูที่กรองแล้ว คือ NavItem เดิมของเรา (ครบ to/label/icon)
-      (filterVisibleMenus(NAV_ITEMS, pagePermissions, role, caps) as unknown as NavItem[]),
+    () => filterVisibleMenus(NAV_ITEMS, pagePermissions, role, caps),
     [role, caps, pagePermissions]
   );
 

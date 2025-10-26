@@ -1,5 +1,5 @@
 // ======================================================================
-// ไฟล์: web/src/App.tsx
+// ไฟล์: src/App.tsx
 // เวอร์ชัน: 2025-10-14 20:25 (Asia/Bangkok)
 // เปลี่ยนแปลงรอบนี้:
 //   • [ใหม่] ใส่ ErrorBoundary กัน "หน้าขาว" จาก runtime error (เช่น lazy import พัง)
@@ -7,9 +7,6 @@
 //   • [ปรับ] onAuthStateChanged มี cleanup ถูกต้อง (กัน memory leak)
 //   • [คงเดิม] เส้นทาง Public/Admin ทั้งหมด + test routes: /__test__/admin-perms, /__test__/permission-editor, /__test__/checkbox-group
 // หมายเหตุ: หาก test pages ไม่มีไฟล์จริง จะเห็นข้อความชัดเจนแทนการหน้าขาว
-//
-// Updated: 2025-10-26  (เพิ่มเส้นทาง LP: internal-requests, permit-approvals, locations, internal-users)
-// ผู้แก้ไข: เพื่อนคู่คิด
 // ======================================================================
 
 import React, { useEffect, useState, Suspense, lazy } from "react";
@@ -75,27 +72,9 @@ const DailyOperations = safeLazy(() => import("./pages/admin/DailyOperations"), 
 const AdminPageLegacy = safeLazy(() => import("./pages/AdminPage"), "AdminPageLegacy");
 
 // -------- Test Pages --------
-const TestCheckboxGroup    = safeLazy(() => import("./pages/__test__/TestCheckboxGroup"), "TestCheckboxGroup");
+const TestCheckboxGroup   = safeLazy(() => import("./pages/__test__/TestCheckboxGroup"), "TestCheckboxGroup");
 const TestPermissionEditor = safeLazy(() => import("./pages/__test__/TestPermissionEditor"), "TestPermissionEditor");
 const TestHook             = safeLazy(() => import("./pages/__test__/TestHook"), "TestHook");
-
-// ★★★ LP Admin Pages (Module 2) — กัน 404 สำหรับเมนูใหม่ ★★★
-const LP_InternalRequests = safeLazy(
-  () => import("./pages/admin/lp/InternalRequestsQueue"),
-  "LP/InternalRequestsQueue"
-);
-const LP_PermitApprovals = safeLazy(
-  () => import("./pages/admin/lp/PermitApprovals"),
-  "LP/PermitApprovals"
-);
-const LP_Locations = safeLazy(
-  () => import("./pages/admin/lp/LocationsPage"),
-  "LP/LocationsPage"
-);
-const LP_InternalUsers = safeLazy(
-  () => import("./pages/admin/lp/InternalUsersPage"),
-  "LP/InternalUsersPage"
-);
 
 // ตั้งค่า Firebase จาก .env (Vite: import.meta.env.VITE_*)
 const getFirebaseConfig = () => ({
@@ -230,14 +209,6 @@ export default function App() {
             <Route path="cleanup" element={<Page><Cleanup /></Page>} />
             <Route path="settings" element={<Page><Settings /></Page>} />
             <Route path="reports" element={<Page><Reports /></Page>} />
-
-            {/* ★★★ LP Admin routes (Module 2) — กัน 404 สำหรับเมนูใหม่ ★★★ */}
-            <Route path="lp">
-              <Route path="internal-requests" element={<Page><LP_InternalRequests /></Page>} />
-              <Route path="permit-approvals" element={<Page><LP_PermitApprovals /></Page>} />
-              <Route path="locations" element={<Page><LP_Locations /></Page>} />
-              <Route path="internal-users" element={<Page><LP_InternalUsers /></Page>} />
-            </Route>
           </Route>
 
           {/* กัน 404 → ส่งกลับไป /rules */}
