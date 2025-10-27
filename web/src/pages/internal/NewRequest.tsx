@@ -120,7 +120,7 @@ export default function NewRequest() {
     let triedFallback = false;
 
     const loadPrimary = () => {
-      const q = query(collection(db, COLLECTION_LOCATIONS_PRIMARY), orderBy('locationName'));
+      const q = query(collection(db, COLLECTION_LOCATIONS_PRIMARY), orderBy('name'));
       unsubPrimary = onSnapshot(
         q,
         (snap) => {
