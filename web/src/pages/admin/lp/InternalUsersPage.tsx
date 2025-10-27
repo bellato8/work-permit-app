@@ -1,23 +1,19 @@
 // ======================================================================
 // File: web/src/pages/admin/lp/InternalUsersPage.tsx
-// เวอร์ชัน: 27/10/2025 00:55 (Asia/Bangkok)
+// เวอร์ชัน: 27/10/2025 (Asia/Bangkok)
 // หน้าที่: จัดการผู้ใช้ภายใน (users_internal) — แสดง/ค้นหา/เพิ่ม/แก้ไข/ลบ
-// เชื่อมบริการ: Firestore (collection, onSnapshot, add/update/delete)
+// เชื่อม Firestore: artifacts/{appId}/public/data/users_internal (ตาม schema)
+// ฟีเจอร์: CRUD + ค้นหาด้วย email/fullName/department
 // หมายเหตุ:
-//   • คอลเลกชันตามสัญญา: users_internal (Fields: userId?, email, fullName, department, createdAt, updatedAt)
-//   • ใช้ onSnapshot แบบเรียลไทม์ + orderBy เพื่อเรียงตามชื่อ/อีเมล
-//   • ตรวจรูปแบบอีเมล และค่าว่างก่อนบันทึก
-// อ้างอิง: Firebase Web v9 (modular) addDoc/updateDoc/deleteDoc/onSnapshot/collection/orderBy
-//          เอกสารอธิบาย API อย่างเป็นทางการของ Firestore/Functions
-//          - Firestore API: addDoc/updateDoc/deleteDoc/onSnapshot/orderBy/collection :contentReference[oaicite:1]{index=1}
-//          - แนวคิดการฟังข้อมูลเรียลไทม์ onSnapshot :contentReference[oaicite:2]{index=2}
-// ผู้แก้ไข: เพื่อนคู่คิด
-// อัปเดตล่าสุด: 27/10/2025 00:55
+// - แก้ path จาก 'users_internal' → 'artifacts/{appId}/public/data/users_internal'
+// - เหตุผล: ให้สอดคล้องกับ schema ที่ตกลง และ LocationsPage
+// - ข้อดี: ข้อมูลรวมอยู่ที่เดียวกัน, ไม่ขัดแย้งระหว่างหน้า
+// - ทางเลือก: ไม่มี (ต้องตาม schema)
+// วันที่อัปเดต: 27/10/2025
 // ======================================================================
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  getFirestore,
   collection,
   onSnapshot,
   addDoc,
@@ -29,6 +25,13 @@ import {
   orderBy,
 } from 'firebase/firestore';
 
+import { db } from '../../../lib/firebase';
+
+// ดึง APP_ID จาก environment variable (ต้องตั้งค่าใน .env)
+const APP_ID = import.meta.env.VITE_APP_ID || 'default';
+// Path ตาม schema ที่ตกลง: artifacts/{appId}/public/data/users_internal
+const USERS_INTERNAL_PATH = `artifacts/${APP_ID}/public/data/users_internal`;
+
 type InternalUser = {
   id: string;             // doc id
   userId?: string;        // (ออปชัน) UID ของ Auth ไว้ผูกภายหลัง
@@ -38,8 +41,6 @@ type InternalUser = {
   createdAt?: any;
   updatedAt?: any;
 };
-
-const db = getFirestore();
 
 const box: React.CSSProperties = { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8 };
 const inputCss: React.CSSProperties = { padding: 8, borderRadius: 6, border: '1px solid #d1d5db', width: '100%' };
@@ -91,9 +92,9 @@ const InternalUsersPage: React.FC = () => {
   useEffect(() => {
     setLoading(true);
 
-    // คอลเลกชันตามสัญญา: users_internal
-    // เรียงตาม fullName asc (สำรอง: ถ้าไม่มีให้เรียงตาม email)
-    const qy = query(collection(db, 'users_internal'), orderBy('fullName', 'asc'));
+    // คอลเลกชันตาม schema: artifacts/{appId}/public/data/users_internal
+    // เรียงตาม fullName asc
+    const qy = query(collection(db, USERS_INTERNAL_PATH), orderBy('fullName', 'asc'));
     const unsub = onSnapshot(
       qy,
       (snap) => {
@@ -166,13 +167,13 @@ const InternalUsersPage: React.FC = () => {
       setSaving(true);
       const { id, ...rest } = form;
       if (!id) {
-        await addDoc(collection(db, 'users_internal'), {
+        await addDoc(collection(db, USERS_INTERNAL_PATH), {
           ...rest,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
       } else {
-        await updateDoc(doc(db, `users_internal/${id}`), {
+        await updateDoc(doc(db, USERS_INTERNAL_PATH, id), {
           ...rest,
           updatedAt: serverTimestamp(),
         });
@@ -190,7 +191,7 @@ const InternalUsersPage: React.FC = () => {
     const ok = confirm(`ยืนยันลบผู้ใช้ภายใน "${row.fullName}" ?`);
     if (!ok) return;
     try {
-      await deleteDoc(doc(db, `users_internal/${row.id}`));
+      await deleteDoc(doc(db, USERS_INTERNAL_PATH, row.id));
     } catch (e) {
       console.error('[InternalUsersPage] delete error:', e);
       alert('ลบไม่สำเร็จ');
@@ -201,7 +202,7 @@ const InternalUsersPage: React.FC = () => {
     <div style={{ padding: 16, fontFamily: 'Sarabun, sans-serif' }}>
       <div style={{ marginBottom: 12 }}>
         <h1 style={title}>ผู้ใช้ภายใน (Internal Users)</h1>
-        <div style={small}>คอลเลกชัน: <code>users_internal</code></div>
+        <div style={small}>คอลเลกชัน: <code>{USERS_INTERNAL_PATH}</code></div>
       </div>
 
       {/* แถบเครื่องมือ */}
