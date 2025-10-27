@@ -60,5 +60,6 @@ export { getStatus } from "./getStatus";
 // อนุมัติเบื้องต้น → สร้าง RID + อัปเดตสถานะ + คืน URL mock สำหรับผู้รับเหมา
 export { createContractorLink } from "./createContractorLink";
 
-// TODO (ภายหลัง): เมื่อไฟล์พร้อมให้เปิด export นี้
-// export { mockPermitSubmitted } from "./mockPermitSubmitted";
+// จำลองการที่ผู้รับเหมากรอกฟอร์ม (Module 3) เสร็จและส่งมา → เปลี่ยนสถานะเป็น 'รอ LP ตรวจสอบ'
+// ⚠️ MOCK สำหรับทดสอบเท่านั้น - ใน Production จริง Module 3 จะทำหน้าที่นี้
+export { mockPermitSubmitted } from "./mockPermitSubmitted";
