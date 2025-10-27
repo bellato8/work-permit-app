@@ -1,19 +1,20 @@
-//======================================================================
-// File: web/src/pages/internal/Login.tsx
-// เวอร์ชัน: 27/10/2025 00:35 (Asia/Bangkok)
-// หน้าที่: หน้าเข้าสู่ระบบสำหรับ Internal Portal (อีเมล/รหัสผ่าน)
-// เชื่อม auth ผ่าน "อะแดปเตอร์": Firebase Auth (signInWithEmailAndPassword)
-// เปลี่ยนแปลงรอบนี้:
-// • [เพิ่มกลับ] onAuthStateChanged → auto-redirect ถ้ามี session อยู่แล้ว
-// • [คงไว้] Remember me → สลับ Local/Session persistence
-// • [คงไว้] รองรับ redirect ผ่าน query ?to=... (fallback /internal/requests)
-// • [เพิ่ม] ตรวจรูปแบบอีเมลเบื้องต้นก่อนยิง sign-in
-// หมายเหตุ: ใช้ฟอนต์ Sarabun ให้โทนเดียวกับทั้งระบบ
-// ผู้แก้ไข: เพื่อนคู่คิด
-// อัปเดตล่าสุด: 27/10/2025 00:35
 // ======================================================================
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+// File: web/src/pages/internal/Login.tsx
+// เวอร์ชัน: 27/10/2025 03:30 (Asia/Bangkok)
+// หน้าที่: หน้าเข้าสู่ระบบสำหรับ Internal Portal (อีเมล/รหัสผ่าน)
+//          ออกแบบใหม่ด้วย Material-UI พร้อมสีสันสดใส เรียบหรู ดูแพง
+// เปลี่ยนแปลงรอบนี้:
+//   • เปลี่ยนจาก inline styles → ใช้ MUI components ทั้งหมด
+//   • เพิ่ม gradient background สีสันสดใส (blue-purple)
+//   • ใช้ MUI TextField, Button, Card, Alert พร้อม icons
+//   • เพิ่ม animation fade-in และ elevation
+//   • Modern design พร้อม responsive layout
+// ผู้แก้ไข: เพื่อนคู่คิด
+// อัปเดตล่าสุด: 27/10/2025 03:30
+// ======================================================================
+
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   getAuth,
   onAuthStateChanged,
@@ -21,96 +22,52 @@ import {
   setPersistence,
   browserLocalPersistence,
   browserSessionPersistence,
-} from "firebase/auth";
+} from 'firebase/auth';
 
-const wrap: React.CSSProperties = {
-  minHeight: "100dvh", // ใช้ dvh เพื่อรองรับมือถือ
-  display: "grid",
-  placeItems: "center",
-  background: "#f3f4f6",
-  fontFamily: "Sarabun, sans-serif",
-};
+// MUI Components
+import {
+  Box,
+  Card,
+  CardContent,
+  TextField,
+  Button,
+  Typography,
+  FormControlLabel,
+  Checkbox,
+  Alert,
+  InputAdornment,
+  IconButton,
+  Fade,
+  Container,
+} from '@mui/material';
 
-const card: React.CSSProperties = {
-  width: "100%",
-  maxWidth: 420,
-  background: "#fff",
-  border: "1px solid #e5e7eb",
-  borderRadius: 12,
-  padding: 20,
-  boxShadow: "0 10px 20px rgba(0,0,0,0.04)",
-};
-
-const title: React.CSSProperties = {
-  margin: 0,
-  fontSize: 22,
-  fontWeight: 800,
-};
-
-const subtitle: React.CSSProperties = {
-  marginTop: 6,
-  marginBottom: 18,
-  color: "#6b7280",
-  fontSize: 14,
-};
-
-const labelCss: React.CSSProperties = {
-  display: "block",
-  fontSize: 13,
-  marginBottom: 6,
-  color: "#374151",
-};
-
-const inputCss: React.CSSProperties = {
-  width: "100%",
-  padding: "10px 12px",
-  border: "1px solid #d1d5db",
-  borderRadius: 8,
-  outline: "none",
-} as const;
-
-const btn: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  width: "100%",
-  padding: "10px 14px",
-  borderRadius: 8,
-  border: "none",
-  background: "#2563eb",
-  color: "#fff",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const danger: React.CSSProperties = {
-  background: "#fee2e2",
-  color: "#991b1b",
-  border: "1px solid #fecaca",
-  padding: "10px 12px",
-  borderRadius: 8,
-  fontSize: 13,
-};
-
-const small: React.CSSProperties = { fontSize: 12, color: "#6b7280" };
+// MUI Icons
+import {
+  Email as EmailIcon,
+  Lock as LockIcon,
+  Visibility,
+  VisibilityOff,
+  Login as LoginIcon,
+  WorkOutline,
+} from '@mui/icons-material';
 
 function mapAuthError(code?: string): string {
   switch (code) {
-    case "auth/invalid-email":
-      return "อีเมลไม่ถูกต้อง";
-    case "auth/user-disabled":
-      return "บัญชีนี้ถูกปิดการใช้งาน";
-    case "auth/user-not-found":
-      return "ไม่พบบัญชีผู้ใช้นี้";
-    case "auth/wrong-password":
-    case "auth/invalid-credential":
-      return "อีเมลหรือรหัสผ่านไม่ถูกต้อง";
-    case "auth/too-many-requests":
-      return "พยายามมากเกินไป กรุณาลองใหม่ภายหลัง";
-    case "auth/network-request-failed":
-      return "เครือข่ายมีปัญหา กรุณาตรวจสอบการเชื่อมต่อ";
+    case 'auth/invalid-email':
+      return 'อีเมลไม่ถูกต้อง';
+    case 'auth/user-disabled':
+      return 'บัญชีนี้ถูกปิดการใช้งาน';
+    case 'auth/user-not-found':
+      return 'ไม่พบบัญชีผู้ใช้นี้';
+    case 'auth/wrong-password':
+    case 'auth/invalid-credential':
+      return 'อีเมลหรือรหัสผ่านไม่ถูกต้อง';
+    case 'auth/too-many-requests':
+      return 'พยายามมากเกินไป กรุณาลองใหม่ภายหลัง';
+    case 'auth/network-request-failed':
+      return 'เครือข่ายมีปัญหา กรุณาตรวจสอบการเชื่อมต่อ';
     default:
-      return "เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่";
+      return 'เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่';
   }
 }
 
@@ -120,22 +77,28 @@ export default function InternalLogin() {
   const auth = getAuth();
 
   const nextPath = useMemo(() => {
-    // อนุญาต redirect ผ่าน query ?to=/internal/requests (fallback)
     try {
       const q = new URLSearchParams(location.search);
-      return q.get("to") || "/internal/requests";
+      return q.get('to') || '/internal/requests';
     } catch {
-      return "/internal/requests";
+      return '/internal/requests';
     }
   }, [location.search]);
 
-  const [email, setEmail] = useState("");
-  const [pass, setPass] = useState("");
+  const [email, setEmail] = useState('');
+  const [pass, setPass] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
 
-  // ถ้ามี session อยู่แล้ว → redirect อัตโนมัติ
+  // Fade-in animation
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Auto-redirect if already logged in
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
       if (user) {
@@ -156,23 +119,23 @@ export default function InternalLogin() {
       const passTrim = pass;
 
       if (!emailTrim) {
-        setErr("กรุณาระบุอีเมล");
+        setErr('กรุณาระบุอีเมล');
         return;
       }
-      // ตรวจรูปแบบอีเมลเบื้องต้น
+
       const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim);
       if (!emailOk) {
-        setErr("รูปแบบอีเมลไม่ถูกต้อง");
+        setErr('รูปแบบอีเมลไม่ถูกต้อง');
         return;
       }
+
       if (!passTrim) {
-        setErr("กรุณาระบุรหัสผ่าน");
+        setErr('กรุณาระบุรหัสผ่าน');
         return;
       }
 
       setBusy(true);
       try {
-        // ตั้งค่าการคงสถานะการล็อกอิน
         await setPersistence(
           auth,
           remember ? browserLocalPersistence : browserSessionPersistence
@@ -191,84 +154,168 @@ export default function InternalLogin() {
   );
 
   return (
-    <div style={wrap}>
-      <div style={card}>
-        <h1 style={title}>เข้าสู่ระบบ (พนักงานภายใน)</h1>
-        <p style={subtitle}>
-          เข้าสู่ระบบเพื่อส่งคำขอเข้าทำงานและติดตามสถานะในระบบ Work Permit
-        </p>
-
-        {err ? <div style={{ ...danger, marginBottom: 12 }}>{err}</div> : null}
-
-        <form onSubmit={onSubmit}>
-          <div style={{ marginBottom: 12 }}>
-            <label style={labelCss} htmlFor="email">
-              อีเมล
-            </label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.currentTarget.value)}
-              placeholder="name@company.com"
-              style={inputCss}
-              autoComplete="username"
-              disabled={busy}
-              required
-            />
-          </div>
-
-          <div style={{ marginBottom: 12 }}>
-            <label style={labelCss} htmlFor="password">
-              รหัสผ่าน
-            </label>
-            <input
-              id="password"
-              type="password"
-              value={pass}
-              onChange={(e) => setPass(e.currentTarget.value)}
-              placeholder="••••••••"
-              style={inputCss}
-              autoComplete="current-password"
-              disabled={busy}
-              required
-            />
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: 16,
-              gap: 12,
+    <Box
+      sx={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        fontFamily: 'Sarabun, sans-serif',
+        position: 'relative',
+        overflow: 'hidden',
+        '&::before': {
+          content: '""',
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background:
+            'radial-gradient(circle at 20% 50%, rgba(120, 119, 198, 0.3), transparent 50%), radial-gradient(circle at 80% 80%, rgba(252, 165, 165, 0.3), transparent 50%)',
+          animation: 'pulse 8s ease-in-out infinite',
+        },
+        '@keyframes pulse': {
+          '0%, 100%': { opacity: 1 },
+          '50%': { opacity: 0.5 },
+        },
+      }}
+    >
+      <Container maxWidth="sm">
+        <Fade in={mounted} timeout={800}>
+          <Card
+            elevation={24}
+            sx={{
+              borderRadius: 4,
+              overflow: 'hidden',
+              backdropFilter: 'blur(20px)',
+              background: 'rgba(255, 255, 255, 0.95)',
             }}
           >
-            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input
-                type="checkbox"
-                checked={remember}
-                onChange={(e) => setRemember(e.currentTarget.checked)}
-                disabled={busy}
-              />
-              <span style={{ fontSize: 14 }}>จำฉันไว้</span>
-            </label>
+            <Box
+              sx={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                py: 4,
+                px: 3,
+                textAlign: 'center',
+                color: 'white',
+              }}
+            >
+              <WorkOutline sx={{ fontSize: 56, mb: 1 }} />
+              <Typography variant="h4" fontWeight={800} gutterBottom>
+                Work Permit System
+              </Typography>
+              <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                เข้าสู่ระบบเพื่อส่งคำขอและติดตามสถานะ
+              </Typography>
+            </Box>
 
-            {/* (อนาคต) ลิงก์ลืมรหัสผ่าน */}
-            {/* <a href="/internal/forgot" style={{ fontSize: 14 }}>ลืมรหัสผ่าน?</a> */}
-          </div>
+            <CardContent sx={{ p: 4 }}>
+              {err && (
+                <Alert severity="error" sx={{ mb: 3 }}>
+                  {err}
+                </Alert>
+              )}
 
-          <button type="submit" style={btn} disabled={busy}>
-            {busy ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
-          </button>
-        </form>
+              <form onSubmit={onSubmit}>
+                <TextField
+                  fullWidth
+                  label="อีเมล"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@company.com"
+                  disabled={busy}
+                  required
+                  autoComplete="username"
+                  sx={{ mb: 2.5 }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <EmailIcon color="primary" />
+                      </InputAdornment>
+                    ),
+                  }}
+                />
 
-        <div style={{ marginTop: 12 }}>
-          <span style={small}>
-            หลังจากเข้าสู่ระบบ ระบบจะนำคุณไปยังหน้า “คำขอของฉัน”
-          </span>
-        </div>
-      </div>
-    </div>
+                <TextField
+                  fullWidth
+                  label="รหัสผ่าน"
+                  type={showPassword ? 'text' : 'password'}
+                  value={pass}
+                  onChange={(e) => setPass(e.target.value)}
+                  placeholder="••••••••"
+                  disabled={busy}
+                  required
+                  autoComplete="current-password"
+                  sx={{ mb: 2 }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <LockIcon color="primary" />
+                      </InputAdornment>
+                    ),
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          onClick={() => setShowPassword(!showPassword)}
+                          edge="end"
+                          disabled={busy}
+                        >
+                          {showPassword ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+
+                <Box sx={{ mb: 3 }}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={remember}
+                        onChange={(e) => setRemember(e.target.checked)}
+                        disabled={busy}
+                        color="primary"
+                      />
+                    }
+                    label="จำฉันไว้"
+                  />
+                </Box>
+
+                <Button
+                  type="submit"
+                  fullWidth
+                  variant="contained"
+                  size="large"
+                  disabled={busy}
+                  startIcon={<LoginIcon />}
+                  sx={{
+                    py: 1.5,
+                    fontWeight: 700,
+                    fontSize: 16,
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    '&:hover': {
+                      background: 'linear-gradient(135deg, #5568d3 0%, #65408d 100%)',
+                      transform: 'translateY(-2px)',
+                      boxShadow: 6,
+                    },
+                    transition: 'all 0.3s ease',
+                  }}
+                >
+                  {busy ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ'}
+                </Button>
+              </form>
+
+              <Box sx={{ mt: 3, textAlign: 'center' }}>
+                <Typography variant="caption" color="text.secondary">
+                  หลังจากเข้าสู่ระบบ ระบบจะนำคุณไปยังหน้า "คำขอของฉัน"
+                </Typography>
+              </Box>
+            </CardContent>
+          </Card>
+        </Fade>
+      </Container>
+    </Box>
   );
 }
