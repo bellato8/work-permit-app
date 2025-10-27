@@ -1,11 +1,15 @@
 // ======================================================================
 // File: web/src/pages/admin/lp/LocationsPage.tsx
-// Updated: 26/10/2025 23:25 (Asia/Bangkok)
-// Purpose: หน้าจัดการ "สถานที่" ด้วย MUI (สีสด + รองรับมือถือ)
-// Change log:
-// - แก้ Error MUI Grid: ตัดการใช้ <Grid> ออกทั้งหมด (ชน type ในโปรเจกต์)
-// - จัดเลย์เอาต์ใหม่ด้วย <Box display="grid"> + <Stack> แทน (ผลลัพธ์เหมือนเดิม)
-// - ไม่แตะฟังก์ชันเพิ่ม/แก้/สลับสถานะ และการเชื่อม Firestore
+// เวอร์ชัน: 27/10/2025 (Asia/Bangkok)
+// หน้าที่: หน้าจัดการ Master Data "สถานที่/ชั้น" สำหรับ LP Admin
+// เชื่อม Firestore: artifacts/{appId}/public/data/locations (ตาม schema)
+// ฟีเจอร์: CRUD + toggle Active/Inactive
+// หมายเหตุ:
+// - แก้ path จาก 'locations' → 'artifacts/{appId}/public/data/locations'
+// - เหตุผล: ให้สอดคล้องกับ schema ที่ตกลง และหน้าอื่นใช้ path นี้แล้ว
+// - ข้อดี: ข้อมูลรวมอยู่ที่เดียวกัน, ไม่ขัดแย้งระหว่างหน้า
+// - ทางเลือก: ไม่มี (ต้องตาม schema)
+// วันที่อัปเดต: 27/10/2025
 // ======================================================================
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -22,6 +26,11 @@ import {
 } from 'firebase/firestore';
 
 import { db } from '../../../lib/firebase';
+
+// ดึง APP_ID จาก environment variable (ต้องตั้งค่าใน .env)
+const APP_ID = import.meta.env.VITE_APP_ID || 'default';
+// Path ตาม schema ที่ตกลง: artifacts/{appId}/public/data/locations
+const LOCATIONS_PATH = `artifacts/${APP_ID}/public/data/locations`;
 
 // MUI
 import {
@@ -97,7 +106,7 @@ export default function LocationsPage() {
   const [editIsActive, setEditIsActive] = useState(true);
 
   useEffect(() => {
-    const q = query(collection(db, 'locations'), orderBy('name'));
+    const q = query(collection(db, LOCATIONS_PATH), orderBy('name'));
     const unsub = onSnapshot(
       q,
       (snap) => {
@@ -135,7 +144,7 @@ export default function LocationsPage() {
     const floors = parseFloorsInput(newFloorsInput);
 
     try {
-      await addDoc(collection(db, 'locations'), {
+      await addDoc(collection(db, LOCATIONS_PATH), {
         name,
         floors,
         isActive: newIsActive,
@@ -174,7 +183,7 @@ export default function LocationsPage() {
     const floors = parseFloorsInput(editFloorsInput);
 
     try {
-      await updateDoc(doc(db, 'locations', row.id), {
+      await updateDoc(doc(db, LOCATIONS_PATH, row.id), {
         name,
         floors,
         isActive: editIsActive,
@@ -189,7 +198,7 @@ export default function LocationsPage() {
   async function toggleActive(row: LocationDoc) {
     if (!row.id) return;
     try {
-      await updateDoc(doc(db, 'locations', row.id), {
+      await updateDoc(doc(db, LOCATIONS_PATH, row.id), {
         isActive: !row.isActive,
         updatedAt: serverTimestamp(),
       });
