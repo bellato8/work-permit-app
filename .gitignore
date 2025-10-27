@@ -66,7 +66,11 @@
 .docusaurus
 .dynamodb/
 .env
-.env.*
+.env.local
+.env.development
+.env.production
+.env.test
+.env.*.local
 .eslintcache
 .firebase/
 .fusebox/
@@ -96,6 +100,7 @@ dist
 firebase-debug.log
 functions/.env
 functions/.env.*    # ใช้ได้ แต่ห้ามใส่ความลับจริงลง git
+!functions/.env.example  # ยกเว้น .env.example ให้ commit ได้
 functions/.tsbuildinfo
 functions/dist/
 functions/lib/
