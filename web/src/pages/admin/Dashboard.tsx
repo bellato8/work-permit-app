@@ -21,8 +21,25 @@ import CancelOutlinedIcon from "@mui/icons-material/CancelOutlined";
 import PeopleAltOutlinedIcon from "@mui/icons-material/PeopleAltOutlined";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 
+// Recharts สำหรับ Pie Chart
+import { PieChart, Pie, Cell, Legend, Tooltip, ResponsiveContainer } from "recharts";
+
 // ใช้ auth ของโปรเจกต์
 import { auth } from "../../lib/firebase";
+
+// สีสำหรับ Pie Chart (สีสดใสและแตกต่างกัน)
+const PIE_COLORS = [
+  "#667eea", // ม่วงน้ำเงิน
+  "#f093fb", // ชมพูอ่อน
+  "#4facfe", // ฟ้าสด
+  "#43e97b", // เขียวมิ้นต์
+  "#fa709a", // ชมพูแดง
+  "#fee140", // เหลืองสด
+  "#30cfd0", // เขียวน้ำทะเล
+  "#a8edea", // เขียวอ่อน
+  "#ff6a88", // แดงชมพู
+  "#feca57", // ส้มทอง
+];
 
 // ---------- ประเภทข้อมูล ----------
 type RequestItem = {
@@ -462,25 +479,44 @@ export default function Dashboard() {
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 2, mb: 2 }}>
         <Card variant="outlined" sx={{ borderRadius: 3 }}>
           <CardContent>
-            <Typography variant="subtitle1" fontWeight={700}>Top Permit Types</Typography>
+            <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 2 }}>Top Permit Types</Typography>
             {topTypes.length === 0 ? (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>ยังไม่มีข้อมูลประเภทงาน</Typography>
             ) : (
-              <Stack spacing={1.25} sx={{ mt: 2 }}>
-                {topTypes.map((it, idx) => {
-                  const max = topTypes[0]?.count || 1;
-                  const percent = Math.max(4, Math.round((it.count / max) * 100));
-                  return (
-                    <Box key={idx}>
-                      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.5 }}>
-                        <Typography variant="body2" fontWeight={600}>{it.type}</Typography>
-                        <Typography variant="body2" color="text.secondary">{it.count}</Typography>
-                      </Stack>
-                      <LinearProgress variant="determinate" value={percent} />
-                    </Box>
-                  );
-                })}
-              </Stack>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={topTypes}
+                    dataKey="count"
+                    nameKey="type"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={80}
+                    label={({ type, count, percent }) =>
+                      `${type}: ${count} (${((percent || 0) * 100).toFixed(0)}%)`
+                    }
+                    labelLine={{ stroke: "#888", strokeWidth: 1 }}
+                  >
+                    {topTypes.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value: number, name: string) => [`${value} รายการ`, name]}
+                    contentStyle={{
+                      backgroundColor: "rgba(255,255,255,0.95)",
+                      border: "1px solid #ccc",
+                      borderRadius: 8,
+                      padding: 8
+                    }}
+                  />
+                  <Legend
+                    verticalAlign="bottom"
+                    height={36}
+                    formatter={(value, entry: any) => `${value} (${entry.payload.count})`}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
             )}
           </CardContent>
         </Card>
