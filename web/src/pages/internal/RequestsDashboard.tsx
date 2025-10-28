@@ -1,17 +1,24 @@
 // ======================================================================
 // File: web/src/pages/internal/RequestsDashboard.tsx
-// เวอร์ชัน: 27/10/2025 01:20 (Asia/Bangkok)
+// เวอร์ชัน: 27/10/2025 03:45 (Asia/Bangkok)
 // หน้าที่: แดชบอร์ด "คำขอของฉัน" แสดง internal_requests เฉพาะของผู้ใช้ที่ล็อกอิน
-// เชื่อม auth ผ่าน "อะแดปเตอร์": Firebase Auth (onAuthStateChanged), Firestore (onSnapshot)
+//          ออกแบบใหม่ด้วย Material-UI พร้อมสีสันสดใส เรียบหรู modern
 // เปลี่ยนแปลงรอบนี้:
-// • [เพิ่ม] ข้อความอธิบายกรณีต้องสร้าง Composite Index เมื่อ query orderBy('createdAt')
-// • [เพิ่ม] แสดงวันที่ "สร้างเมื่อ" (createdAt) ใต้ชื่อร้านค้า
-// • [เพิ่ม] ปุ่ม "คัดลอก RID" (แสดงเมื่อมี RID)
-// อ้างอิง: Realtime listeners & index docs ของ Firestore
+//   • เปลี่ยนจากตาราง → MUI Card Grid layout
+//   • เพิ่ม AppBar/Toolbar พร้อม gradient สีสันสดใส
+//   • ใช้ MUI Chip สำหรับ status badges พร้อม icons
+//   • เพิ่ม icons สำหรับแต่ละข้อมูล (Location, Time, Contractor, etc.)
+//   • Empty state ที่สวยงาม
+//   • Loading skeleton animation
+//   • Responsive grid (xs=12, sm=6, md=4)
+//   • Color-coded cards ตามสถานะ
+//   • Floating Action Button สำหรับสร้างคำขอใหม่
+// ผู้แก้ไข: เพื่อนคู่คิด
+// อัปเดตล่าสุด: 27/10/2025 03:45
 // ======================================================================
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
 import {
   getFirestore,
@@ -22,8 +29,49 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 
+// MUI Components
+import {
+  AppBar,
+  Toolbar,
+  Container,
+  Box,
+  Card,
+  CardContent,
+  Typography,
+  Chip,
+  Grid,
+  TextField,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Fab,
+  IconButton,
+  Skeleton,
+  Alert,
+  InputAdornment,
+  Divider,
+} from '@mui/material';
+
+// MUI Icons
+import {
+  Add as AddIcon,
+  Store as StoreIcon,
+  Schedule as ScheduleIcon,
+  Engineering as EngineeringIcon,
+  CalendarMonth as CalendarIcon,
+  ContentCopy as CopyIcon,
+  Search as SearchIcon,
+  LogoutOutlined as LogoutIcon,
+  CheckCircle,
+  Cancel,
+  HourglassBottom,
+  PendingActions,
+  Assignment,
+} from '@mui/icons-material';
+
 // -----------------------------
-// สถานะงาน (ต้องตรงตามสเป็ก)
+// Types
 // -----------------------------
 type InternalStatus =
   | 'รอดำเนินการ'
@@ -32,19 +80,18 @@ type InternalStatus =
   | 'อนุมัติเข้าทำงาน'
   | 'ไม่อนุมัติ';
 
-// -----------------------------
-// ประเภทข้อมูลเอกสาร
-// -----------------------------
 interface InternalRequestDoc {
   id?: string;
   requesterEmail: string;
-  locationId: string; // ref id ของ locations
-  shopName: string; // denormalized
-  floor: string; // denormalized
+  locationId: string;
+  locationName?: string;
+  shopName: string;
+  floor: string;
   workDetails: string;
-  workStartDateTime: string | Timestamp;
-  workEndDateTime: string | Timestamp;
-  contractorName: string;
+  workStartAt: string | Timestamp;
+  workEndAt: string | Timestamp;
+  contractorCompany: string;
+  contractorContactName: string;
   contractorContactPhone: string;
   status: InternalStatus;
   linkedPermitRID?: string | null;
@@ -63,26 +110,23 @@ const APP_ID =
   (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID ||
   'demo-app';
 
-// แสดงป้ายสถานะ (ภาษาไทย + สี)
-function StatusBadge({ status }: { status: InternalStatus }) {
-  const style: React.CSSProperties = {
-    display: 'inline-block',
-    padding: '2px 8px',
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: 700,
-  };
-  let bg = '#e5e7eb';
-  let color = '#374151';
-  if (status === 'รอดำเนินการ') { bg = '#fff7ed'; color = '#9a3412'; }
-  if (status === 'LP รับทราบ (รอผู้รับเหมา)') { bg = '#dbeafe'; color = '#1e3a8a'; }
-  if (status === 'รอ LP ตรวจสอบ') { bg = '#fef3c7'; color = '#92400e'; }
-  if (status === 'อนุมัติเข้าทำงาน') { bg = '#dcfce7'; color = '#166534'; }
-  if (status === 'ไม่อนุมัติ') { bg = '#fee2e2'; color = '#991b1b'; }
-  return <span style={{ ...style, background: bg, color }}>{status}</span>;
+function getStatusConfig(status: InternalStatus) {
+  switch (status) {
+    case 'รอดำเนินการ':
+      return { color: 'warning' as const, icon: <PendingActions />, bg: '#fff7ed' };
+    case 'LP รับทราบ (รอผู้รับเหมา)':
+      return { color: 'info' as const, icon: <HourglassBottom />, bg: '#dbeafe' };
+    case 'รอ LP ตรวจสอบ':
+      return { color: 'secondary' as const, icon: <Assignment />, bg: '#fef3c7' };
+    case 'อนุมัติเข้าทำงาน':
+      return { color: 'success' as const, icon: <CheckCircle />, bg: '#dcfce7' };
+    case 'ไม่อนุมัติ':
+      return { color: 'error' as const, icon: <Cancel />, bg: '#fee2e2' };
+    default:
+      return { color: 'default' as const, icon: null, bg: '#f3f4f6' };
+  }
 }
 
-// แปลงเวลา: รองรับ Timestamp หรือ ISO string
 function formatDateTime(input?: string | Timestamp) {
   if (!input) return '-';
   try {
@@ -106,21 +150,18 @@ function formatDateTime(input?: string | Timestamp) {
 }
 
 // -----------------------------
-// คอมโพเนนต์หลัก
+// Main Component
 // -----------------------------
 const RequestsDashboard: React.FC = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
-
   const [items, setItems] = useState<InternalRequestDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
-
-  // ค้นหา/กรอง
   const [qtext, setQtext] = useState('');
   const [statusFilter, setStatusFilter] = useState<InternalStatus | 'ทั้งหมด'>('ทั้งหมด');
 
-  // ตรวจการล็อกอิน ถ้าไม่ล็อกอิน → redirect ไป /internal/login
+  // Auth check
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
       if (!u) {
@@ -132,15 +173,13 @@ const RequestsDashboard: React.FC = () => {
     return () => unsub();
   }, [navigate]);
 
-  // โหลดรายการของผู้ใช้คนนี้
+  // Load data
   useEffect(() => {
     if (!user) return;
     setLoading(true);
 
     const colPath = `artifacts/${APP_ID}/users/${user.uid}/internal_requests`;
     const colRef = collection(db, colPath);
-
-    // เรียงล่าสุดก่อน
     const qy = query(colRef, orderBy('createdAt', 'desc'));
 
     const unsub = onSnapshot(
@@ -156,15 +195,7 @@ const RequestsDashboard: React.FC = () => {
       },
       (e: any) => {
         console.error('[RequestsDashboard] onSnapshot error:', e);
-        // ถ้าต้องการดัชนี Firestore จะส่ง error พร้อมลิงก์สร้าง index ในคอนโซล
-        const needIndex =
-          e?.code === 'failed-precondition' ||
-          /index/i.test(e?.message || '');
-        if (needIndex) {
-          setErr('ต้องสร้างดัชนี (Composite Index) สำหรับการเรียงข้อมูลตาม createdAt — โปรดคลิกลิงก์สร้างดัชนีที่แสดงในคอนโซล แล้วลองใหม่');
-        } else {
-          setErr('ไม่สามารถโหลดรายการคำขอได้');
-        }
+        setErr('ไม่สามารถโหลดรายการคำขอได้');
         setLoading(false);
       }
     );
@@ -172,145 +203,301 @@ const RequestsDashboard: React.FC = () => {
     return () => unsub();
   }, [user]);
 
-  // กรองรายการในหน้า
+  // Filter
   const filtered = useMemo(() => {
     const s = qtext.trim().toLowerCase();
     return items.filter((it) => {
       const okStatus = statusFilter === 'ทั้งหมด' ? true : it.status === statusFilter;
       if (!okStatus) return false;
-
       if (!s) return true;
-      const hay =
-        [
-          it.shopName,
-          it.floor,
-          it.workDetails,
-          it.contractorName,
-          it.contractorContactPhone,
-          it.linkedPermitRID || '',
-          it.requesterEmail,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
+      const hay = [
+        it.shopName,
+        it.floor,
+        it.workDetails,
+        it.contractorCompany,
+        it.contractorContactPhone,
+        it.linkedPermitRID || '',
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
       return hay.includes(s);
     });
   }, [items, qtext, statusFilter]);
 
-  // สไตล์พื้นฐาน
-  const box: React.CSSProperties = { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8 };
-  const input: React.CSSProperties = { padding: 8, borderRadius: 6, border: '1px solid #d1d5db', width: '100%' };
-  const btn: React.CSSProperties = { padding: '8px 12px', borderRadius: 6, border: '1px solid #d1d5db', cursor: 'pointer' };
-  const btnPrimary: React.CSSProperties = { ...btn, background: '#2563eb', color: 'white', border: 'none' };
-  const btnGhost: React.CSSProperties = { ...btn, background: '#fff' };
-  const title: React.CSSProperties = { fontSize: 20, fontWeight: 800, margin: 0 };
-  const small: React.CSSProperties = { color: '#6b7280', fontSize: 12 };
-
-  // คัดลอกข้อความ (RID)
-  const copy = async (text: string) => {
+  // Copy RID
+  const copyRID = async (rid: string) => {
     try {
-      await navigator.clipboard.writeText(text);
-      alert('คัดลอกแล้ว');
+      await navigator.clipboard.writeText(rid);
+      alert('คัดลอก RID แล้ว');
     } catch {
       alert('คัดลอกไม่สำเร็จ');
     }
   };
 
-  return (
-    <div style={{ padding: 16, fontFamily: 'Sarabun, sans-serif' }}>
-      <div style={{ marginBottom: 12 }}>
-        <h1 style={title}>คำขอของฉัน</h1>
-        <div style={small}>
-          แสดงเฉพาะคำขอที่คุณสร้างเอง · Path: <code>/artifacts/{APP_ID}/users/&lt;uid&gt;/internal_requests</code>
-        </div>
-      </div>
+  // Logout
+  const handleLogout = async () => {
+    await auth.signOut();
+    navigate('/internal/login');
+  };
 
-      {/* แถบเครื่องมือ */}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-        <div style={{ flex: '1 1 220px' }}>
-          <input
-            placeholder="ค้นหา: ร้าน/ชั้น/รายละเอียด/ผู้รับเหมา/เบอร์/RID..."
+  return (
+    <Box sx={{ minHeight: '100vh', bgcolor: '#f5f5f5', pb: 10 }}>
+      {/* AppBar */}
+      <AppBar
+        position="static"
+        sx={{
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          boxShadow: 4,
+        }}
+      >
+        <Toolbar>
+          <Assignment sx={{ mr: 1.5, fontSize: 28 }} />
+          <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 700 }}>
+            คำขอของฉัน
+          </Typography>
+          <Typography variant="body2" sx={{ mr: 2, opacity: 0.9 }}>
+            {user?.email}
+          </Typography>
+          <IconButton color="inherit" onClick={handleLogout} title="ออกจากระบบ">
+            <LogoutIcon />
+          </IconButton>
+        </Toolbar>
+      </AppBar>
+
+      <Container maxWidth="lg" sx={{ mt: 4 }}>
+        {/* Filters */}
+        <Box sx={{ mb: 3, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+          <TextField
+            placeholder="ค้นหา: ร้าน, ชั้น, รายละเอียด, ผู้รับเหมา, RID..."
             value={qtext}
             onChange={(e) => setQtext(e.target.value)}
-            style={input}
+            sx={{ flex: '1 1 300px' }}
+            size="small"
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+            }}
           />
-        </div>
-        <div>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as any)}
-            style={{ ...input, width: 220, background: '#fff' }}
-          >
-            <option value="ทั้งหมด">ทั้งหมด</option>
-            <option value="รอดำเนินการ">รอดำเนินการ</option>
-            <option value="LP รับทราบ (รอผู้รับเหมา)">LP รับทราบ (รอผู้รับเหมา)</option>
-            <option value="รอ LP ตรวจสอบ">รอ LP ตรวจสอบ</option>
-            <option value="อนุมัติเข้าทำงาน">อนุมัติเข้าทำงาน</option>
-            <option value="ไม่อนุมัติ">ไม่อนุมัติ</option>
-          </select>
-        </div>
-        <div style={{ marginLeft: 'auto' }}>
-          <Link to="/internal/requests/new" style={{ textDecoration: 'none' }}>
-            <button style={btnPrimary}>+ สร้างคำขอใหม่</button>
-          </Link>
-        </div>
-      </div>
+          <FormControl size="small" sx={{ minWidth: 220 }}>
+            <InputLabel>กรองตามสถานะ</InputLabel>
+            <Select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              label="กรองตามสถานะ"
+            >
+              <MenuItem value="ทั้งหมด">ทั้งหมด</MenuItem>
+              <MenuItem value="รอดำเนินการ">รอดำเนินการ</MenuItem>
+              <MenuItem value="LP รับทราบ (รอผู้รับเหมา)">LP รับทราบ (รอผู้รับเหมา)</MenuItem>
+              <MenuItem value="รอ LP ตรวจสอบ">รอ LP ตรวจสอบ</MenuItem>
+              <MenuItem value="อนุมัติเข้าทำงาน">อนุมัติเข้าทำงาน</MenuItem>
+              <MenuItem value="ไม่อนุมัติ">ไม่อนุมัติ</MenuItem>
+            </Select>
+          </FormControl>
+        </Box>
 
-      {/* ตาราง */}
-      <div style={{ ...box, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-          <thead style={{ background: '#f9fafb' }}>
-            <tr>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>พื้นที่/ร้าน</th>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>ช่วงเวลา</th>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>ผู้รับเหมา</th>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>สถานะ</th>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>RID</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td style={{ padding: 12 }} colSpan={5}>กำลังโหลด...</td></tr>
-            ) : err ? (
-              <tr><td style={{ padding: 12, color: '#dc2626' }} colSpan={5}>{err}</td></tr>
-            ) : filtered.length === 0 ? (
-              <tr><td style={{ padding: 12, color: '#6b7280' }} colSpan={5}>ไม่พบข้อมูล</td></tr>
-            ) : (
-              filtered.map((r) => (
-                <tr key={r.id}>
-                  <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
-                    <div style={{ fontWeight: 700 }}>{r.shopName || '-'}</div>
-                    <div style={small}>ชั้น: {r.floor || '-'}</div>
-                    <div style={small}>สร้างเมื่อ: {formatDateTime(r.createdAt)}</div>
-                  </td>
-                  <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
-                    <div>{formatDateTime(r.workStartDateTime)} → {formatDateTime(r.workEndDateTime)}</div>
-                    <div style={small}>{r.workDetails || '-'}</div>
-                  </td>
-                  <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
-                    <div>{r.contractorName || '-'}</div>
-                    <div style={small}>{r.contractorContactPhone || '-'}</div>
-                  </td>
-                  <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
-                    <StatusBadge status={r.status} />
-                  </td>
-                  <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
-                    {r.linkedPermitRID ? (
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <span>{r.linkedPermitRID}</span>
-                        <button style={btnGhost} onClick={() => copy(r.linkedPermitRID!)}>คัดลอก</button>
-                      </div>
-                    ) : (
-                      <span style={{ color: '#6b7280' }}>-</span>
-                    )}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
+        {/* Error */}
+        {err && (
+          <Alert severity="error" sx={{ mb: 3 }}>
+            {err}
+          </Alert>
+        )}
+
+        {/* Loading Skeleton */}
+        {loading && (
+          <Grid container spacing={3}>
+            {[1, 2, 3].map((i) => (
+              <Grid item xs={12} sm={6} md={4} key={i}>
+                <Card>
+                  <CardContent>
+                    <Skeleton variant="text" width="60%" height={30} />
+                    <Skeleton variant="text" width="40%" />
+                    <Skeleton variant="rectangular" height={80} sx={{ my: 2 }} />
+                    <Skeleton variant="text" width="50%" />
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+        )}
+
+        {/* Empty State */}
+        {!loading && filtered.length === 0 && (
+          <Card
+            sx={{
+              textAlign: 'center',
+              py: 8,
+              background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
+            }}
+          >
+            <Assignment sx={{ fontSize: 80, color: '#9e9e9e', mb: 2 }} />
+            <Typography variant="h6" color="text.secondary" gutterBottom>
+              {qtext || statusFilter !== 'ทั้งหมด'
+                ? 'ไม่พบคำขอที่ตรงกับเงื่อนไข'
+                : 'ยังไม่มีคำขอ'}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {qtext || statusFilter !== 'ทั้งหมด'
+                ? 'ลองเปลี่ยนเงื่อนไขการค้นหา'
+                : 'คลิกปุ่ม + ด้านล่างเพื่อสร้างคำขอใหม่'}
+            </Typography>
+          </Card>
+        )}
+
+        {/* Cards Grid */}
+        {!loading && filtered.length > 0 && (
+          <Grid container spacing={3}>
+            {filtered.map((item) => {
+              const statusConfig = getStatusConfig(item.status);
+              return (
+                <Grid item xs={12} sm={6} md={4} key={item.id}>
+                  <Card
+                    elevation={3}
+                    sx={{
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      transition: 'all 0.3s ease',
+                      borderLeft: '4px solid',
+                      borderLeftColor: `${statusConfig.color}.main`,
+                      '&:hover': {
+                        transform: 'translateY(-4px)',
+                        boxShadow: 8,
+                      },
+                    }}
+                  >
+                    <CardContent sx={{ flexGrow: 1 }}>
+                      {/* Status Badge */}
+                      <Box sx={{ mb: 2 }}>
+                        <Chip
+                          icon={statusConfig.icon}
+                          label={item.status}
+                          color={statusConfig.color}
+                          size="small"
+                          sx={{ fontWeight: 600 }}
+                        />
+                      </Box>
+
+                      {/* Location */}
+                      <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 1.5 }}>
+                        <StoreIcon sx={{ mr: 1, fontSize: 20, color: 'text.secondary' }} />
+                        <Box>
+                          <Typography variant="subtitle2" fontWeight={700}>
+                            {item.shopName || item.locationName || '-'}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            ชั้น: {item.floor}
+                          </Typography>
+                        </Box>
+                      </Box>
+
+                      {/* Time */}
+                      <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 1.5 }}>
+                        <ScheduleIcon sx={{ mr: 1, fontSize: 20, color: 'text.secondary' }} />
+                        <Box>
+                          <Typography variant="caption" display="block">
+                            {formatDateTime(item.workStartAt)}
+                          </Typography>
+                          <Typography variant="caption" display="block">
+                            → {formatDateTime(item.workEndAt)}
+                          </Typography>
+                        </Box>
+                      </Box>
+
+                      {/* Work Details */}
+                      <Box sx={{ mb: 1.5 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          {item.workDetails}
+                        </Typography>
+                      </Box>
+
+                      {/* Contractor */}
+                      <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 1.5 }}>
+                        <EngineeringIcon sx={{ mr: 1, fontSize: 20, color: 'text.secondary' }} />
+                        <Box>
+                          <Typography variant="caption" display="block">
+                            {item.contractorCompany || '-'}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {item.contractorContactPhone || '-'}
+                          </Typography>
+                        </Box>
+                      </Box>
+
+                      <Divider sx={{ my: 1.5 }} />
+
+                      {/* Created At */}
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
+                        <CalendarIcon sx={{ mr: 1, fontSize: 18, color: 'text.secondary' }} />
+                        <Typography variant="caption" color="text.secondary">
+                          สร้างเมื่อ: {formatDateTime(item.createdAt)}
+                        </Typography>
+                      </Box>
+
+                      {/* RID */}
+                      {item.linkedPermitRID && (
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            bgcolor: '#f5f5f5',
+                            p: 1,
+                            borderRadius: 1,
+                          }}
+                        >
+                          <Typography variant="body2" fontWeight={600} color="primary">
+                            RID: {item.linkedPermitRID}
+                          </Typography>
+                          <IconButton
+                            size="small"
+                            onClick={() => copyRID(item.linkedPermitRID!)}
+                            title="คัดลอก RID"
+                          >
+                            <CopyIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      )}
+                    </CardContent>
+                  </Card>
+                </Grid>
+              );
+            })}
+          </Grid>
+        )}
+
+        {/* Summary */}
+        {!loading && filtered.length > 0 && (
+          <Box sx={{ mt: 3, textAlign: 'center' }}>
+            <Typography variant="body2" color="text.secondary">
+              แสดง {filtered.length} จาก {items.length} รายการ
+              {(qtext || statusFilter !== 'ทั้งหมด') && ' (กรองแล้ว)'}
+            </Typography>
+          </Box>
+        )}
+      </Container>
+
+      {/* Floating Action Button */}
+      <Fab
+        color="primary"
+        aria-label="add"
+        sx={{
+          position: 'fixed',
+          bottom: 24,
+          right: 24,
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          '&:hover': {
+            background: 'linear-gradient(135deg, #5568d3 0%, #65408d 100%)',
+          },
+        }}
+        onClick={() => navigate('/internal/requests/new')}
+      >
+        <AddIcon />
+      </Fab>
+    </Box>
   );
 };
 
