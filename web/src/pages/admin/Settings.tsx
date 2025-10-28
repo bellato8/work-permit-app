@@ -5,10 +5,52 @@
 //  - CRUD ทั้ง 4 หมวด (persist ใน localStorage)
 //  - Checklist ผูกกับ Work Types (many-to-many)
 //  - เขียน System Logs ผ่าน mockStore.addLog
-//  - ใช้คลาสจาก index.css (.btn, .input, .badge ฯลฯ)
+//  - ใช้ Material-UI components ทั้งหมด
+// เปลี่ยนแปลงรอบนี้:
+//   • แปลง Tailwind CSS และ custom classes เป็น MUI components
+//   • ใช้ Tabs สำหรับแบ่งส่วน 4 หมวด
+//   • เพิ่ม gradient AppBar และ Card layout
+//   • Icons สำหรับแต่ละหมวด
 // ============================================================
 import { useEffect, useMemo, useState } from "react";
 import { mockStore, useMockVersion } from "../../data/store";
+
+// MUI Components
+import {
+  Box,
+  Card,
+  CardContent,
+  Typography,
+  TextField,
+  Button,
+  Stack,
+  Tabs,
+  Tab,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  IconButton,
+  Chip,
+  Checkbox,
+  FormControlLabel,
+  Paper,
+  Divider,
+  Alert,
+} from '@mui/material';
+import Grid from '@mui/material/GridLegacy';
+
+// MUI Icons
+import {
+  Business as DepartmentIcon,
+  LocationOn as LocationIcon,
+  Engineering as WorkTypeIcon,
+  ChecklistRtl as ChecklistIcon,
+  Add as AddIcon,
+  Delete as DeleteIcon,
+  Save as SaveIcon,
+} from '@mui/icons-material';
 
 type Id = string;
 type Department = { id: Id; name: string };
@@ -17,8 +59,8 @@ type WorkType = { id: Id; name: string };
 type Checklist = {
   id: Id;
   name: string;
-  items: string[];      // คำถามแต่ละข้อ
-  workTypeIds: Id[];    // ผูกกับประเภทงาน
+  items: string[];
+  workTypeIds: Id[];
 };
 
 const LS_DEPT = "wp_master_departments";
@@ -43,7 +85,7 @@ function save<T>(key: string, v: T) {
 }
 
 export default function Settings() {
-  useMockVersion(); // ให้หน้ารีเฟรชเมื่อมี Logs เปลี่ยน
+  useMockVersion();
 
   // --- Seeds เบื้องต้น ---
   const seedDept: Department[] = [
@@ -76,12 +118,15 @@ export default function Settings() {
   const [workTypes,   setWorkTypes]   = useState<WorkType[]>(() => load(LS_WT, seedWt));
   const [checklists,  setChecklists]  = useState<Checklist[]>(() => load(LS_CHK, seedChk));
 
+  // Tab state
+  const [activeTab, setActiveTab] = useState(0);
+
   // ฟอร์มเพิ่มใหม่ (inline)
   const [deptName, setDeptName] = useState("");
   const [locName,  setLocName]  = useState("");
   const [wtName,   setWtName]   = useState("");
   const [newChkName, setNewChkName] = useState("");
-  const [newChkItems, setNewChkItems] = useState("ใส่ PPE, ตรวจอุปกรณ์"); // คั่นด้วยคอมมา
+  const [newChkItems, setNewChkItems] = useState("ใส่ PPE, ตรวจอุปกรณ์");
   const [newChkWts, setNewChkWts] = useState<Id[]>([]);
 
   // บันทึกเมื่อ state เปลี่ยน
@@ -144,7 +189,6 @@ export default function Settings() {
   const removeWt = (id: Id) => {
     if (!confirm("ยืนยันลบประเภทงานนี้? รายการนี้จะถูกนำออกจาก Checklist ที่เกี่ยวข้องด้วย")) return;
     setWorkTypes(prev => prev.filter(x => x.id !== id));
-    // ถอด id นี้ออกจากทุก Checklist
     setChecklists(prev => prev.map(c => ({ ...c, workTypeIds: c.workTypeIds.filter(wid => wid !== id) })));
     mockStore.addLog("MASTER_WT_REMOVE", id);
   };
@@ -188,7 +232,7 @@ export default function Settings() {
     mockStore.addLog("MASTER_CHK_REMOVE", id);
   };
 
-  // การนับเพื่อโชว์หัวการ์ด
+  // การนับเพื่อโชว์สรุป
   const counts = useMemo(() => ({
     dept: departments.length,
     loc: locations.length,
@@ -197,183 +241,355 @@ export default function Settings() {
   }), [departments, locations, workTypes, checklists]);
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-xl font-semibold">System Settings / Master Data</h1>
+    <Box sx={{ p: 3 }}>
+      {/* Header */}
+      <Typography variant="h4" fontWeight={700} gutterBottom sx={{ mb: 3 }}>
+        System Settings / Master Data
+      </Typography>
 
-      {/* Summary */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Card label="แผนก" value={counts.dept} />
-        <Card label="สถานที่ปฏิบัติงาน" value={counts.loc} />
-        <Card label="ประเภทงาน" value={counts.wt} />
-        <Card label="Safety Checklists" value={counts.chk} />
-      </div>
+      {/* Summary Cards */}
+      <Grid container spacing={3} sx={{ mb: 4 }}>
+        <Grid item xs={12} sm={6} md={3}>
+          <SummaryCard label="แผนก" value={counts.dept} icon={<DepartmentIcon />} color="#667eea" />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <SummaryCard label="สถานที่" value={counts.loc} icon={<LocationIcon />} color="#764ba2" />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <SummaryCard label="ประเภทงาน" value={counts.wt} icon={<WorkTypeIcon />} color="#f093fb" />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <SummaryCard label="Checklists" value={counts.chk} icon={<ChecklistIcon />} color="#4facfe" />
+        </Grid>
+      </Grid>
 
-      {/* Departments */}
-      <section className="rounded-2xl border bg-white p-4 shadow-sm space-y-3">
-        <div className="heading text-sm font-medium">จัดการแผนก (Departments)</div>
-        <div className="flex gap-2">
-          <input className="input" placeholder="ชื่อแผนก เช่น ซ่อมบำรุง"
-                 value={deptName} onChange={(e)=>setDeptName(e.target.value)} />
-          <button className="btn" onClick={addDept}>+ Add</button>
-        </div>
-        <SimpleList
-          rows={departments}
-          onRename={renameDept}
-          onRemove={removeDept}
-          emptyText="ยังไม่มีแผนก"
-        />
-      </section>
+      {/* Tabs */}
+      <Paper elevation={3} sx={{ borderRadius: 2, overflow: 'hidden' }}>
+        <Tabs
+          value={activeTab}
+          onChange={(_, newValue) => setActiveTab(newValue)}
+          sx={{
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            '& .MuiTab-root': { color: 'rgba(255,255,255,0.7)', fontWeight: 600 },
+            '& .Mui-selected': { color: 'white !important' },
+            '& .MuiTabs-indicator': { backgroundColor: 'white', height: 3 },
+          }}
+        >
+          <Tab icon={<DepartmentIcon />} iconPosition="start" label="แผนก" />
+          <Tab icon={<LocationIcon />} iconPosition="start" label="สถานที่" />
+          <Tab icon={<WorkTypeIcon />} iconPosition="start" label="ประเภทงาน" />
+          <Tab icon={<ChecklistIcon />} iconPosition="start" label="Safety Checklists" />
+        </Tabs>
 
-      {/* Locations */}
-      <section className="rounded-2xl border bg-white p-4 shadow-sm space-y-3">
-        <div className="heading text-sm font-medium">จัดการสถานที่ปฏิบัติงาน (Locations)</div>
-        <div className="flex gap-2">
-          <input className="input" placeholder="ชื่อโซน/พื้นที่ เช่น โซน A"
-                 value={locName} onChange={(e)=>setLocName(e.target.value)} />
-          <button className="btn" onClick={addLoc}>+ Add</button>
-        </div>
-        <SimpleList
-          rows={locations}
-          onRename={renameLoc}
-          onRemove={removeLoc}
-          emptyText="ยังไม่มีสถานที่"
-        />
-      </section>
+        <Box sx={{ p: 3 }}>
+          {/* Tab 0: Departments */}
+          {activeTab === 0 && (
+            <TabPanel>
+              <Typography variant="h6" gutterBottom fontWeight={600}>
+                จัดการแผนก (Departments)
+              </Typography>
+              <Stack direction="row" spacing={2} sx={{ mb: 3 }}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  placeholder="ชื่อแผนก เช่น ซ่อมบำรุง"
+                  value={deptName}
+                  onChange={(e) => setDeptName(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && addDept()}
+                />
+                <Button
+                  variant="contained"
+                  startIcon={<AddIcon />}
+                  onClick={addDept}
+                  sx={{
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    minWidth: 120,
+                  }}
+                >
+                  Add
+                </Button>
+              </Stack>
+              <SimpleList
+                rows={departments}
+                onRename={renameDept}
+                onRemove={removeDept}
+                emptyText="ยังไม่มีแผนก"
+              />
+            </TabPanel>
+          )}
 
-      {/* Work Types */}
-      <section className="rounded-2xl border bg-white p-4 shadow-sm space-y-3">
-        <div className="heading text-sm font-medium">จัดการประเภทงาน (Work Permit Types)</div>
-        <div className="flex gap-2">
-          <input className="input" placeholder="ชื่อประเภทงาน เช่น งานไฟฟ้า"
-                 value={wtName} onChange={(e)=>setWtName(e.target.value)} />
-          <button className="btn" onClick={addWt}>+ Add</button>
-        </div>
-        <SimpleList
-          rows={workTypes}
-          onRename={renameWt}
-          onRemove={removeWt}
-          emptyText="ยังไม่มีประเภทงาน"
-        />
-      </section>
+          {/* Tab 1: Locations */}
+          {activeTab === 1 && (
+            <TabPanel>
+              <Typography variant="h6" gutterBottom fontWeight={600}>
+                จัดการสถานที่ปฏิบัติงาน (Locations)
+              </Typography>
+              <Stack direction="row" spacing={2} sx={{ mb: 3 }}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  placeholder="ชื่อโซน/พื้นที่ เช่น โซน A"
+                  value={locName}
+                  onChange={(e) => setLocName(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && addLoc()}
+                />
+                <Button
+                  variant="contained"
+                  startIcon={<AddIcon />}
+                  onClick={addLoc}
+                  sx={{
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    minWidth: 120,
+                  }}
+                >
+                  Add
+                </Button>
+              </Stack>
+              <SimpleList
+                rows={locations}
+                onRename={renameLoc}
+                onRemove={removeLoc}
+                emptyText="ยังไม่มีสถานที่"
+              />
+            </TabPanel>
+          )}
 
-      {/* Safety Checklists */}
-      <section className="rounded-2xl border bg-white p-4 shadow-sm space-y-4">
-        <div className="heading text-sm font-medium">จัดการ Safety Checklists</div>
+          {/* Tab 2: Work Types */}
+          {activeTab === 2 && (
+            <TabPanel>
+              <Typography variant="h6" gutterBottom fontWeight={600}>
+                จัดการประเภทงาน (Work Permit Types)
+              </Typography>
+              <Stack direction="row" spacing={2} sx={{ mb: 3 }}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  placeholder="ชื่อประเภทงาน เช่น งานไฟฟ้า"
+                  value={wtName}
+                  onChange={(e) => setWtName(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && addWt()}
+                />
+                <Button
+                  variant="contained"
+                  startIcon={<AddIcon />}
+                  onClick={addWt}
+                  sx={{
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    minWidth: 120,
+                  }}
+                >
+                  Add
+                </Button>
+              </Stack>
+              <SimpleList
+                rows={workTypes}
+                onRename={renameWt}
+                onRemove={removeWt}
+                emptyText="ยังไม่มีประเภทงาน"
+              />
+            </TabPanel>
+          )}
 
-        {/* Add new checklist */}
-        <div className="grid md:grid-cols-2 gap-3">
-          <div className="space-y-2">
-            <label className="label">ชื่อ Checklist</label>
-            <input className="input" placeholder="เช่น Checklist งานไฟฟ้า (ก่อนเริ่มงาน)"
-                   value={newChkName} onChange={(e)=>setNewChkName(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <label className="label">ข้อคำถามเบื้องต้น (คั่นด้วย , )</label>
-            <input className="input" placeholder="ใส่ PPE, ตรวจอุปกรณ์, ..."
-                   value={newChkItems} onChange={(e)=>setNewChkItems(e.target.value)} />
-          </div>
-          <div className="space-y-2 md:col-span-2">
-            <div className="label">ผูกกับประเภทงาน (เลือกได้หลายอัน)</div>
-            <div className="flex flex-wrap gap-2">
-              {workTypes.map(w => {
-                const checked = newChkWts.includes(w.id);
-                return (
-                  <label key={w.id} className={`px-3 py-1 rounded-xl border cursor-pointer ${checked ? "bg-slate-900 text-white border-slate-900" : "bg-white hover:bg-slate-50"}`}>
-                    <input
-                      type="checkbox"
-                      className="mr-2"
-                      checked={checked}
-                      onChange={()=>{
-                        setNewChkWts(prev => prev.includes(w.id) ? prev.filter(x=>x!==w.id) : [...prev, w.id]);
-                      }}
+          {/* Tab 3: Checklists */}
+          {activeTab === 3 && (
+            <TabPanel>
+              <Typography variant="h6" gutterBottom fontWeight={600}>
+                จัดการ Safety Checklists
+              </Typography>
+
+              {/* Add new checklist form */}
+              <Card elevation={2} sx={{ mb: 3, p: 2, bgcolor: '#f9fafb' }}>
+                <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+                  เพิ่ม Checklist ใหม่
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="ชื่อ Checklist"
+                      placeholder="เช่น Checklist งานไฟฟ้า (ก่อนเริ่มงาน)"
+                      value={newChkName}
+                      onChange={(e) => setNewChkName(e.target.value)}
                     />
-                    {w.name}
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-          <div>
-            <button className="btn" onClick={addChecklist}>+ Add Checklist</button>
-          </div>
-        </div>
-
-        {/* List all checklists */}
-        <div className="rounded-2xl border bg-white p-2 sm:p-4 shadow-sm overflow-x-auto">
-          <table className="min-w-[900px] w-full table-basic">
-            <thead>
-              <tr>
-                <th className="py-2 px-3">ชื่อ</th>
-                <th className="py-2 px-3">ข้อคำถาม</th>
-                <th className="py-2 px-3">ผูกกับประเภทงาน</th>
-                <th className="py-2 px-3">จัดการ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {checklists.map((c) => (
-                <tr key={c.id} className="border-t align-top">
-                  <td className="py-2 px-3">
-                    <input
-                      className="w-full rounded-lg border px-2 py-1 text-sm"
-                      value={c.name}
-                      onChange={(e)=>renameChecklist(c.id, e.target.value)}
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="ข้อคำถาม (คั่นด้วย ,)"
+                      placeholder="ใส่ PPE, ตรวจอุปกรณ์, ..."
+                      value={newChkItems}
+                      onChange={(e) => setNewChkItems(e.target.value)}
                     />
-                  </td>
-                  <td className="py-2 px-3">
-                    <textarea
-                      className="w-full rounded-lg border px-2 py-1 text-sm min-h-[100px]"
-                      placeholder={"พิมพ์ 1 ข้อต่อ 1 บรรทัด"}
-                      value={c.items.join("\n")}
-                      onChange={(e)=>setChecklistItems(c.id, e.target.value)}
-                    />
-                    <div className="text-xs text-gray-500 mt-1">{c.items.length} ข้อ</div>
-                  </td>
-                  <td className="py-2 px-3">
-                    <div className="flex flex-wrap gap-2">
-                      {workTypes.map(w=>{
-                        const checked = c.workTypeIds.includes(w.id);
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Typography variant="caption" display="block" gutterBottom fontWeight={600}>
+                      ผูกกับประเภทงาน (เลือกได้หลายอัน)
+                    </Typography>
+                    <Stack direction="row" flexWrap="wrap" gap={1}>
+                      {workTypes.map((w) => {
+                        const checked = newChkWts.includes(w.id);
                         return (
-                          <label key={w.id} className={`px-3 py-1 rounded-xl border cursor-pointer ${checked ? "bg-slate-900 text-white border-slate-900" : "bg-white hover:bg-slate-50"}`}>
-                            <input
-                              type="checkbox"
-                              className="mr-2"
-                              checked={checked}
-                              onChange={()=>toggleChecklistWorkType(c.id, w.id)}
-                            />
-                            {w.name}
-                          </label>
+                          <Chip
+                            key={w.id}
+                            label={w.name}
+                            onClick={() => {
+                              setNewChkWts((prev) =>
+                                prev.includes(w.id) ? prev.filter((x) => x !== w.id) : [...prev, w.id]
+                              );
+                            }}
+                            color={checked ? 'primary' : 'default'}
+                            variant={checked ? 'filled' : 'outlined'}
+                            sx={{ cursor: 'pointer' }}
+                          />
                         );
                       })}
-                    </div>
-                  </td>
-                  <td className="py-2 px-3">
-                    <button className="btn" onClick={()=>removeChecklist(c.id)}>Delete</button>
-                  </td>
-                </tr>
-              ))}
-              {checklists.length === 0 && (
-                <tr><td colSpan={4} className="py-6 text-center text-sm text-gray-500">ยังไม่มี Checklist</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+                    </Stack>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Button
+                      variant="contained"
+                      startIcon={<AddIcon />}
+                      onClick={addChecklist}
+                      sx={{
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                      }}
+                    >
+                      Add Checklist
+                    </Button>
+                  </Grid>
+                </Grid>
+              </Card>
 
-      <div className="text-xs text-gray-500">
-        หมายเหตุ: การเปลี่ยนแปลงทั้งหมดบันทึกในเครื่อง (localStorage) และเขียนลง System Logs (MASTER_*).
-      </div>
-    </div>
+              {/* Checklists Table */}
+              {checklists.length === 0 ? (
+                <Alert severity="info">ยังไม่มี Checklist</Alert>
+              ) : (
+                <Paper elevation={2} sx={{ overflow: 'auto' }}>
+                  <Table>
+                    <TableHead>
+                      <TableRow sx={{ bgcolor: '#f3f4f6' }}>
+                        <TableCell sx={{ fontWeight: 700 }}>ชื่อ</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>ข้อคำถาม</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>ผูกกับประเภทงาน</TableCell>
+                        <TableCell sx={{ fontWeight: 700, width: 100 }}>จัดการ</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {checklists.map((c) => (
+                        <TableRow key={c.id} sx={{ '&:hover': { bgcolor: '#f9fafb' } }}>
+                          <TableCell sx={{ verticalAlign: 'top', minWidth: 200 }}>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              value={c.name}
+                              onChange={(e) => renameChecklist(c.id, e.target.value)}
+                            />
+                          </TableCell>
+                          <TableCell sx={{ verticalAlign: 'top', minWidth: 300 }}>
+                            <TextField
+                              fullWidth
+                              multiline
+                              rows={4}
+                              size="small"
+                              placeholder="พิมพ์ 1 ข้อต่อ 1 บรรทัด"
+                              value={c.items.join('\n')}
+                              onChange={(e) => setChecklistItems(c.id, e.target.value)}
+                            />
+                            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                              {c.items.length} ข้อ
+                            </Typography>
+                          </TableCell>
+                          <TableCell sx={{ verticalAlign: 'top', minWidth: 250 }}>
+                            <Stack direction="row" flexWrap="wrap" gap={1}>
+                              {workTypes.map((w) => {
+                                const checked = c.workTypeIds.includes(w.id);
+                                return (
+                                  <Chip
+                                    key={w.id}
+                                    label={w.name}
+                                    size="small"
+                                    onClick={() => toggleChecklistWorkType(c.id, w.id)}
+                                    color={checked ? 'primary' : 'default'}
+                                    variant={checked ? 'filled' : 'outlined'}
+                                    sx={{ cursor: 'pointer' }}
+                                  />
+                                );
+                              })}
+                            </Stack>
+                          </TableCell>
+                          <TableCell sx={{ verticalAlign: 'top' }}>
+                            <IconButton color="error" onClick={() => removeChecklist(c.id)} size="small">
+                              <DeleteIcon />
+                            </IconButton>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </Paper>
+              )}
+            </TabPanel>
+          )}
+        </Box>
+      </Paper>
+
+      {/* Footer note */}
+      <Alert severity="info" sx={{ mt: 3 }}>
+        <Typography variant="caption">
+          หมายเหตุ: การเปลี่ยนแปลงทั้งหมดบันทึกในเครื่อง (localStorage) และเขียนลง System Logs (MASTER_*)
+        </Typography>
+      </Alert>
+    </Box>
   );
 }
 
-// ----------------- sub components -----------------
-function Card({ label, value }: { label: string; value: number }) {
+// ----------------- Sub Components -----------------
+
+function SummaryCard({ label, value, icon, color }: { label: string; value: number; icon: React.ReactNode; color: string }) {
   return (
-    <div className="rounded-2xl border bg-white p-4 shadow-sm">
-      <div className="text-xs text-gray-600">{label}</div>
-      <div className="text-2xl font-semibold mt-1">{value}</div>
-    </div>
+    <Card
+      elevation={3}
+      sx={{
+        borderRadius: 2,
+        overflow: 'hidden',
+        transition: 'all 0.3s ease',
+        '&:hover': { transform: 'translateY(-4px)', boxShadow: 6 },
+      }}
+    >
+      <CardContent>
+        <Stack direction="row" alignItems="center" spacing={2}>
+          <Box
+            sx={{
+              width: 56,
+              height: 56,
+              borderRadius: 2,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: `linear-gradient(135deg, ${color} 0%, ${color}dd 100%)`,
+              color: 'white',
+            }}
+          >
+            {icon}
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary" fontWeight={600}>
+              {label}
+            </Typography>
+            <Typography variant="h4" fontWeight={700}>
+              {value}
+            </Typography>
+          </Box>
+        </Stack>
+      </CardContent>
+    </Card>
   );
+}
+
+function TabPanel({ children }: { children: React.ReactNode }) {
+  return <Box>{children}</Box>;
 }
 
 function SimpleList({
@@ -388,34 +604,38 @@ function SimpleList({
   emptyText: string;
 }) {
   if (rows.length === 0) {
-    return <div className="text-sm text-gray-500">{emptyText}</div>;
+    return <Alert severity="info">{emptyText}</Alert>;
   }
+
   return (
-    <div className="rounded-2xl border bg-white p-2 sm:p-4 shadow-sm overflow-x-auto">
-      <table className="min-w-[600px] w-full table-basic">
-        <thead>
-          <tr>
-            <th className="py-2 px-3">ชื่อ</th>
-            <th className="py-2 px-3 w-[160px]">จัดการ</th>
-          </tr>
-        </thead>
-        <tbody>
+    <Paper elevation={2} sx={{ overflow: 'auto' }}>
+      <Table>
+        <TableHead>
+          <TableRow sx={{ bgcolor: '#f3f4f6' }}>
+            <TableCell sx={{ fontWeight: 700 }}>ชื่อ</TableCell>
+            <TableCell sx={{ fontWeight: 700, width: 120 }}>จัดการ</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
           {rows.map((r) => (
-            <tr key={r.id} className="border-t">
-              <td className="py-2 px-3">
-                <input
-                  className="w-full rounded-lg border px-2 py-1 text-sm"
+            <TableRow key={r.id} sx={{ '&:hover': { bgcolor: '#f9fafb' } }}>
+              <TableCell>
+                <TextField
+                  fullWidth
+                  size="small"
                   value={r.name}
-                  onChange={(e)=>onRename(r.id, e.target.value)}
+                  onChange={(e) => onRename(r.id, e.target.value)}
                 />
-              </td>
-              <td className="py-2 px-3">
-                <button className="btn" onClick={()=>onRemove(r.id)}>Delete</button>
-              </td>
-            </tr>
+              </TableCell>
+              <TableCell>
+                <IconButton color="error" onClick={() => onRemove(r.id)} size="small">
+                  <DeleteIcon />
+                </IconButton>
+              </TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
-    </div>
+        </TableBody>
+      </Table>
+    </Paper>
   );
 }

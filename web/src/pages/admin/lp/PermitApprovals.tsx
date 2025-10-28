@@ -1,17 +1,17 @@
 // ======================================================================
 // File: web/src/pages/admin/lp/PermitApprovals.tsx
-// เวอร์ชัน: 27/10/2025 03:00 (Asia/Bangkok)
+// เวอร์ชัน: 28/10/2025 02:15 (Asia/Bangkok)
 // หน้าที่: หน้าอนุมัติ/ไม่อนุมัติใบอนุญาตขั้นสุดท้าย สำหรับ LP Admin
 //          - แสดงเฉพาะคำขอที่มีสถานะ "รอ LP ตรวจสอบ"
 //          - แสดงข้อมูลผู้รับเหมาที่กรอกมา + ข้อมูลจาก internal request
 //          - ให้ LP อนุมัติหรือไม่อนุมัติ → อัปเดตสถานะขั้นสุดท้าย
 // เปลี่ยนแปลงรอบนี้:
-//   • สร้างใหม่ทั้งหมดจาก placeholder → ทำงานได้จริง
-//   • ใช้ collectionGroup query กรอง status = 'รอ LP ตรวจสอบ'
-//   • ปุ่มอนุมัติ → เปลี่ยนสถานะเป็น 'อนุมัติเข้าทำงาน'
-//   • ปุ่มไม่อนุมัติ → เปลี่ยนสถานะเป็น 'ไม่อนุมัติ'
-// ผู้สร้าง: เพื่อนคู่คิด
-// อัปเดตล่าสุด: 27/10/2025 03:00
+//   • แปลง inline CSS เป็น MUI components ทั้งหมด
+//   • ใช้ MUI Table, TextField, Button, Chip
+//   • เพิ่ม Card layout และ responsive design
+//   • เพิ่ม loading และ empty state
+// ผู้แก้ไข: เพื่อนคู่คิด
+// อัปเดตล่าสุด: 28/10/2025 02:15
 // ======================================================================
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -27,6 +27,37 @@ import {
   updateDoc,
   serverTimestamp,
 } from 'firebase/firestore';
+
+// MUI Components
+import {
+  Box,
+  Card,
+  Typography,
+  TextField,
+  Button,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  Chip,
+  Alert,
+  CircularProgress,
+  Stack,
+  Paper,
+  InputAdornment,
+  Badge,
+} from '@mui/material';
+import {
+  Search as SearchIcon,
+  CheckCircle as ApproveIcon,
+  Cancel as RejectIcon,
+  Business as BusinessIcon,
+  Person as PersonIcon,
+  Store as StoreIcon,
+  Schedule as ScheduleIcon,
+  Badge as BadgeIcon,
+} from '@mui/icons-material';
 
 type InternalStatus =
   | 'รอดำเนินการ'
@@ -47,7 +78,6 @@ interface PermitRow {
   workEndAt: string | Timestamp;
   linkedPermitRID: string;
 
-  // ข้อมูลจากผู้รับเหมา (mock)
   contractorCompanyName?: string;
   contractorContactPerson?: string;
   contractorPhone?: string;
@@ -60,21 +90,19 @@ interface PermitRow {
 
 const db = getFirestore();
 
-const small: React.CSSProperties = { color: '#6b7280', fontSize: 12 };
+function StatusChip({ status }: { status: InternalStatus }) {
+  let color: 'warning' | 'success' | 'error' = 'warning';
+  if (status === 'อนุมัติเข้าทำงาน') color = 'success';
+  if (status === 'ไม่อนุมัติ') color = 'error';
 
-function StatusBadge({ status }: { status: InternalStatus }) {
-  const style: React.CSSProperties = {
-    display: 'inline-block',
-    padding: '2px 8px',
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: 700,
-  };
-  let bg = '#fef3c7';
-  let color = '#92400e';
-  if (status === 'อนุมัติเข้าทำงาน') { bg = '#dcfce7'; color = '#166534'; }
-  if (status === 'ไม่อนุมัติ') { bg = '#fee2e2'; color = '#991b1b'; }
-  return <span style={{ ...style, background: bg, color }}>{status}</span>;
+  return (
+    <Chip
+      label={status}
+      color={color}
+      size="small"
+      sx={{ fontWeight: 600, fontSize: 11 }}
+    />
+  );
 }
 
 function fmt(input?: string | Timestamp) {
@@ -93,13 +121,6 @@ function fmt(input?: string | Timestamp) {
     return '-';
   }
 }
-
-const box: React.CSSProperties = { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8 };
-const inputCss: React.CSSProperties = { padding: 8, borderRadius: 6, border: '1px solid #d1d5db', width: '100%' };
-const btn: React.CSSProperties = { padding: '8px 12px', borderRadius: 6, border: '1px solid #d1d5db', cursor: 'pointer' };
-const btnSuccess: React.CSSProperties = { ...btn, background: '#16a34a', color: 'white', border: 'none' };
-const btnDanger: React.CSSProperties = { ...btn, background: '#dc2626', color: 'white', border: 'none' };
-const title: React.CSSProperties = { fontSize: 20, fontWeight: 800, margin: 0 };
 
 const PermitApprovalsPage: React.FC = () => {
   const [rows, setRows] = useState<PermitRow[]>([]);
@@ -216,118 +237,205 @@ const PermitApprovalsPage: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: 16, fontFamily: 'Sarabun, sans-serif' }}>
-      <div style={{ marginBottom: 12 }}>
-        <h1 style={title}>อนุมัติใบอนุญาต (Permit Approvals)</h1>
-        <div style={small}>
+    <Box sx={{ p: 3 }}>
+      {/* Header */}
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h4" fontWeight={700} gutterBottom>
+          อนุมัติใบอนุญาต (Permit Approvals)
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
           ตรวจสอบข้อมูลผู้รับเหมาและอนุมัติ/ไม่อนุมัติคำขอที่รอการตรวจสอบ
-        </div>
-      </div>
+        </Typography>
+      </Box>
 
-      {/* แถบค้นหา */}
-      <div style={{ marginBottom: 12 }}>
-        <input
+      {/* Search */}
+      <Card elevation={2} sx={{ p: 2, mb: 3 }}>
+        <TextField
+          fullWidth
+          size="small"
           placeholder="ค้นหา: RID / ผู้ขอ / สถานที่ / ผู้รับเหมา..."
           value={qtext}
           onChange={(e) => setQtext(e.target.value)}
-          style={{ ...inputCss, maxWidth: 400 }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon color="action" />
+              </InputAdornment>
+            ),
+          }}
         />
-      </div>
+      </Card>
 
-      {/* ตาราง */}
-      <div style={{ ...box, overflow: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-          <thead style={{ background: '#f9fafb' }}>
-            <tr>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>RID</th>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>ผู้ขอ</th>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>สถานที่/ชั้น</th>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>ช่วงเวลา</th>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>ผู้รับเหมา</th>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>สถานะ</th>
-              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>การจัดการ</th>
-            </tr>
-          </thead>
-          <tbody>
+      {/* Table */}
+      <Paper elevation={3} sx={{ overflow: 'auto', borderRadius: 2 }}>
+        <Table sx={{ minWidth: 1400 }}>
+          <TableHead>
+            <TableRow sx={{ bgcolor: '#f3f4f6' }}>
+              <TableCell sx={{ fontWeight: 700 }}>RID</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>ผู้ขอ</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>สถานที่/ชั้น</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>ช่วงเวลา</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>ผู้รับเหมา</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>สถานะ</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 200 }}>การจัดการ</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
             {loading ? (
-              <tr><td style={{ padding: 12 }} colSpan={7}>กำลังโหลด...</td></tr>
+              <TableRow>
+                <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                  <CircularProgress size={40} />
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                    กำลังโหลด...
+                  </Typography>
+                </TableCell>
+              </TableRow>
             ) : err ? (
-              <tr><td style={{ padding: 12, color: '#dc2626' }} colSpan={7}>{err}</td></tr>
+              <TableRow>
+                <TableCell colSpan={7} sx={{ py: 4 }}>
+                  <Alert severity="error">{err}</Alert>
+                </TableCell>
+              </TableRow>
             ) : filtered.length === 0 ? (
-              <tr><td style={{ padding: 12, color: '#6b7280' }} colSpan={7}>
-                {qtext ? 'ไม่พบข้อมูลที่ค้นหา' : 'ไม่มีคำขอที่รอการตรวจสอบ'}
-              </td></tr>
+              <TableRow>
+                <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    {qtext ? 'ไม่พบข้อมูลที่ค้นหา' : 'ไม่มีคำขอที่รอการตรวจสอบ'}
+                  </Typography>
+                </TableCell>
+              </TableRow>
             ) : (
               filtered.map((r) => {
                 const updating = updatingId === r.id;
                 return (
-                  <tr key={r.docPath}>
-                    <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
-                      <div style={{ fontWeight: 700, color: '#2563eb' }}>{r.linkedPermitRID}</div>
-                      <div style={small}>ส่งโดย: {fmt(r.createdAt)}</div>
-                    </td>
-                    <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
-                      <div style={{ fontWeight: 700 }}>{r.requesterEmail}</div>
-                    </td>
-                    <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
-                      <div style={{ fontWeight: 700 }}>{r.locationName}</div>
-                      <div style={small}>ชั้น: {r.floor}</div>
-                      {r.shopName && <div style={small}>({r.shopName})</div>}
-                    </td>
-                    <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
-                      <div>{fmt(r.workStartAt)}</div>
-                      <div>→ {fmt(r.workEndAt)}</div>
-                      <div style={small}>{r.workDetails}</div>
-                    </td>
-                    <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
-                      <div style={{ fontWeight: 700 }}>{r.contractorCompanyName || '-'}</div>
-                      <div style={small}>ติดต่อ: {r.contractorContactPerson || '-'}</div>
-                      <div style={small}>โทร: {r.contractorPhone || '-'}</div>
-                      {r.contractorSubmittedAt && (
-                        <div style={{ ...small, color: '#16a34a', marginTop: 4 }}>
-                          ✓ ส่งเมื่อ: {fmt(r.contractorSubmittedAt)}
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
-                      <StatusBadge status={r.status} />
-                    </td>
-                    <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <button
-                          style={btnSuccess}
+                  <TableRow key={r.docPath} sx={{ '&:hover': { bgcolor: '#f9fafb' } }}>
+                    <TableCell>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <BadgeIcon fontSize="small" color="primary" />
+                        <Box>
+                          <Typography variant="body2" fontWeight={700} color="primary">
+                            {r.linkedPermitRID}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            ส่ง: {fmt(r.createdAt)}
+                          </Typography>
+                        </Box>
+                      </Stack>
+                    </TableCell>
+                    <TableCell>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <PersonIcon fontSize="small" color="action" />
+                        <Typography variant="body2" fontWeight={600}>
+                          {r.requesterEmail}
+                        </Typography>
+                      </Stack>
+                    </TableCell>
+                    <TableCell>
+                      <Stack direction="row" spacing={1} alignItems="flex-start">
+                        <StoreIcon fontSize="small" color="action" sx={{ mt: 0.5 }} />
+                        <Box>
+                          <Typography variant="body2" fontWeight={600}>
+                            {r.locationName}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            ชั้น: {r.floor}
+                          </Typography>
+                          {r.shopName && (
+                            <Typography variant="caption" color="text.secondary" display="block">
+                              ({r.shopName})
+                            </Typography>
+                          )}
+                        </Box>
+                      </Stack>
+                    </TableCell>
+                    <TableCell>
+                      <Stack spacing={0.5}>
+                        <Stack direction="row" spacing={0.5} alignItems="center">
+                          <ScheduleIcon fontSize="small" color="action" />
+                          <Typography variant="caption">
+                            {fmt(r.workStartAt)}
+                          </Typography>
+                        </Stack>
+                        <Typography variant="caption" color="text.secondary">
+                          → {fmt(r.workEndAt)}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {r.workDetails}
+                        </Typography>
+                      </Stack>
+                    </TableCell>
+                    <TableCell>
+                      <Stack direction="row" spacing={1} alignItems="flex-start">
+                        <BusinessIcon fontSize="small" color="action" sx={{ mt: 0.5 }} />
+                        <Box>
+                          <Typography variant="body2" fontWeight={600}>
+                            {r.contractorCompanyName || '-'}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            ติดต่อ: {r.contractorContactPerson || '-'}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            โทร: {r.contractorPhone || '-'}
+                          </Typography>
+                          {r.contractorSubmittedAt && (
+                            <Chip
+                              label={`ส่งเมื่อ: ${fmt(r.contractorSubmittedAt)}`}
+                              size="small"
+                              color="success"
+                              variant="outlined"
+                              sx={{ mt: 0.5, fontSize: 10 }}
+                            />
+                          )}
+                        </Box>
+                      </Stack>
+                    </TableCell>
+                    <TableCell>
+                      <StatusChip status={r.status} />
+                    </TableCell>
+                    <TableCell>
+                      <Stack direction="column" spacing={1}>
+                        <Button
+                          variant="contained"
+                          size="small"
+                          color="success"
+                          startIcon={updating ? <CircularProgress size={16} color="inherit" /> : <ApproveIcon />}
                           disabled={updating}
                           onClick={() => onApprove(r)}
-                          title="อนุมัติเข้าทำงาน"
+                          fullWidth
                         >
-                          {updating ? 'กำลังอัปเดต...' : 'อนุมัติ'}
-                        </button>
-                        <button
-                          style={btnDanger}
+                          {updating ? 'อัปเดต...' : 'อนุมัติ'}
+                        </Button>
+                        <Button
+                          variant="contained"
+                          size="small"
+                          color="error"
+                          startIcon={<RejectIcon />}
                           disabled={updating}
                           onClick={() => onReject(r)}
-                          title="ไม่อนุมัติ"
+                          fullWidth
                         >
                           ไม่อนุมัติ
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                        </Button>
+                      </Stack>
+                    </TableCell>
+                  </TableRow>
                 );
               })
             )}
-          </tbody>
-        </table>
-      </div>
+          </TableBody>
+        </Table>
+      </Paper>
 
-      {/* สรุปจำนวน */}
+      {/* Summary */}
       {!loading && !err && (
-        <div style={{ marginTop: 12, ...small }}>
-          แสดง {filtered.length} จาก {rows.length} รายการ
-          {qtext && ` (กรองด้วย: "${qtext}")`}
-        </div>
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="caption" color="text.secondary">
+            แสดง {filtered.length} จาก {rows.length} รายการ
+            {qtext && ` (กรองด้วย: "${qtext}")`}
+          </Typography>
+        </Box>
       )}
-    </div>
+    </Box>
   );
 };
 
