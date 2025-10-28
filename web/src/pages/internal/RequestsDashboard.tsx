@@ -39,7 +39,6 @@ import {
   CardContent,
   Typography,
   Chip,
-  Grid,
   TextField,
   Select,
   MenuItem,
@@ -52,6 +51,7 @@ import {
   InputAdornment,
   Divider,
 } from '@mui/material';
+import Grid from '@mui/material/GridLegacy';
 
 // MUI Icons
 import {
@@ -373,7 +373,7 @@ const RequestsDashboard: React.FC = () => {
                       {/* Status Badge */}
                       <Box sx={{ mb: 2 }}>
                         <Chip
-                          icon={statusConfig.icon}
+                          {...(statusConfig.icon && { icon: statusConfig.icon })}
                           label={item.status}
                           color={statusConfig.color}
                           size="small"

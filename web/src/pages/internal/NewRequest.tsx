@@ -38,7 +38,6 @@ import {
   Typography,
   Alert,
   Box,
-  Grid,
   MenuItem,
   Stepper,
   Step,
@@ -49,6 +48,7 @@ import {
   InputAdornment,
   LinearProgress,
 } from '@mui/material';
+import Grid from '@mui/material/GridLegacy';
 
 // MUI Icons
 import {
