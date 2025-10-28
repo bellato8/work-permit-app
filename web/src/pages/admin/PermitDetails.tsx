@@ -17,6 +17,49 @@ import useAuthzLive from "../../hooks/useAuthzLive";
 import ImageViewer from "../../components/ImageViewer";
 import { useReactToPrint } from "react-to-print";
 
+// MUI Components
+import {
+  Box,
+  Card,
+  CardContent,
+  Typography,
+  Button,
+  Chip,
+  Stack,
+  Alert,
+  CircularProgress,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  Snackbar,
+  IconButton,
+  Divider,
+} from "@mui/material";
+import Grid from "@mui/material/GridLegacy";
+
+// MUI Icons
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import CancelIcon from "@mui/icons-material/Cancel";
+import PendingIcon from "@mui/icons-material/Pending";
+import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import PersonIcon from "@mui/icons-material/Person";
+import BusinessIcon from "@mui/icons-material/Business";
+import EmailIcon from "@mui/icons-material/Email";
+import PhoneIcon from "@mui/icons-material/Phone";
+import BadgeIcon from "@mui/icons-material/Badge";
+import LocationOnIcon from "@mui/icons-material/LocationOn";
+import WorkIcon from "@mui/icons-material/Work";
+import AccessTimeIcon from "@mui/icons-material/AccessTime";
+import LocalFireDepartmentIcon from "@mui/icons-material/LocalFireDepartment";
+import BuildIcon from "@mui/icons-material/Build";
+import GroupIcon from "@mui/icons-material/Group";
+import LoginIcon from "@mui/icons-material/Login";
+import LogoutIcon from "@mui/icons-material/Logout";
+import CloseIcon from "@mui/icons-material/Close";
+
 // Firestore (อ่านสมุด checkIns / checkOuts)
 import {
   getFirestore,
@@ -26,45 +69,8 @@ import {
   getDocs,
 } from "firebase/firestore";
 
-function classNames(...xs: (string | false | undefined)[]) {
-  return xs.filter(Boolean).join(" ");
-}
-
 type ToastKind = "success" | "error" | "info";
 type ToastItem = { id: number; kind: ToastKind; title: string; message?: string };
-
-function Toasts({ items, onDismiss }: { items: ToastItem[]; onDismiss: (id:number)=>void }) {
-  const tone: Record<ToastKind, string> = {
-    success: "border-emerald-300 bg-emerald-50 text-emerald-800",
-    error:   "border-rose-300 bg-rose-50 text-rose-800",
-    info:    "border-slate-300 bg-white text-slate-800",
-  };
-  const icon = (k: ToastKind) => k === "success" ? (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19l12-12-1.41-1.41z"/></svg>
-  ) : k === "error" ? (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M12 2 2 22h20L12 2zm1 15h-2v-2h2v2zm0-4h-2V8h2v5z"/></svg>
-  ) : (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M11 7h2v2h-2zm0 4h2v6h-2z"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" fillOpacity=".15"/></svg>
-  );
-  return (
-    <div className="fixed bottom-4 right-4 z-[70] space-y-2">
-      {items.map(t => (
-        <div key={t.id}
-          className={classNames("w-[320px] rounded-xl border p-3 shadow-lg ring-1 ring-black/5 animate-[slideIn_140ms_ease-out]",
-            tone[t.kind])}>
-          <div className="flex gap-2">
-            <div className="mt-0.5">{icon(t.kind)}</div>
-            <div className="min-w-0">
-              <div className="font-medium truncate">{t.title}</div>
-              {t.message && <div className="text-sm opacity-80 truncate">{t.message}</div>}
-            </div>
-            <button className="ml-auto opacity-60 hover:opacity-100" onClick={()=>onDismiss(t.id)}>✕</button>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 type AnyRec = Record<string, any>;
 type WorkerItem = {
@@ -625,362 +631,634 @@ export default function PermitDetails() {
   }
 
   return (
-    <div>
+    <Box sx={{ p: 3 }}>
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">รายละเอียดคำขอ</h1>
-          <div className="text-sm text-slate-600">
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        spacing={2}
+        alignItems={{ xs: "stretch", sm: "center" }}
+        justifyContent="space-between"
+        sx={{ mb: 3 }}
+      >
+        <Box>
+          <Typography variant="h5" fontWeight={700} gutterBottom>
+            รายละเอียดคำขอ
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
             RID: {detail?.rid || detail?.requestId || detail?.id || ridParam || "-"}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <span
-            className={`px-3 py-1 rounded-full text-sm ${
-              statusText === "อนุมัติแล้ว"
-                ? "bg-emerald-100 text-emerald-700"
-                : statusText === "ไม่อนุมัติ"
-                ? "bg-rose-100 text-rose-700"
-                : "bg-amber-100 text-amber-700"
-            }`}
-          >
-            {statusText}
-          </span>
+          </Typography>
+        </Box>
 
-          <button
+        <Stack direction="row" spacing={1.5} flexWrap="wrap">
+          <Chip
+            icon={
+              statusText === "อนุมัติแล้ว" ? (
+                <CheckCircleIcon />
+              ) : statusText === "ไม่อนุมัติ" ? (
+                <CancelIcon />
+              ) : (
+                <PendingIcon />
+              )
+            }
+            label={statusText}
+            color={
+              statusText === "อนุมัติแล้ว"
+                ? "success"
+                : statusText === "ไม่อนุมัติ"
+                ? "error"
+                : "warning"
+            }
+            sx={{ fontWeight: 600 }}
+          />
+
+          <Button
             onClick={() => handlePrint()}
             disabled={!data}
-            className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50 text-sm"
+            variant="outlined"
+            startIcon={<PictureAsPdfIcon />}
+            size="small"
             title={!data ? "กำลังโหลดข้อมูล..." : "บันทึกเป็น PDF"}
           >
             Export PDF
-          </button>
+          </Button>
 
-          <Link to="/admin/permits" className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50 text-sm">
-            ← กลับรายการ
-          </Link>
-        </div>
-      </div>
+          <Button
+            component={Link}
+            to="/admin/permits"
+            variant="outlined"
+            startIcon={<ArrowBackIcon />}
+            size="small"
+          >
+            กลับรายการ
+          </Button>
+        </Stack>
+      </Stack>
 
       {loading && (
-        <div className="mt-4 p-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-700">
+        <Alert severity="info" icon={<CircularProgress size={20} />} sx={{ mb: 3 }}>
           กำลังโหลดข้อมูลจาก API...
-        </div>
+        </Alert>
       )}
 
       {err && (
-        <div className="mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700">
-          <div className="font-medium">เกิดข้อผิดพลาด:</div>
-          <div className="text-sm mt-1">{err}</div>
-          <div className="text-xs mt-2 opacity-70">URL: {GET_DETAIL_URL}</div>
-          <button onClick={() => window.location.reload()} className="mt-2 px-3 py-1 bg-red-100 hover:bg-red-200 rounded text-sm">
-            ลองใหม่
-          </button>
-        </div>
+        <Alert
+          severity="error"
+          sx={{ mb: 3 }}
+          action={
+            <Button color="inherit" size="small" onClick={() => window.location.reload()}>
+              ลองใหม่
+            </Button>
+          }
+        >
+          <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+            เกิดข้อผิดพลาด:
+          </Typography>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            {err}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            URL: {GET_DETAIL_URL}
+          </Typography>
+        </Alert>
       )}
 
       {/* ปุ่มตัดสินใจ (โชว์เฉพาะคนที่มีสิทธิ์ และสถานะกำลังรอดำเนินการ) */}
       {!loading && !err && data && thaiStatus(detail?.status || detail?.decision?.status) === "รอดำเนินการ" && allowed && (
-        <div className="mt-4 flex flex-wrap items-center gap-3 no-print">
-          <button
+        <Stack direction="row" spacing={2} sx={{ mb: 3 }} className="no-print">
+          <Button
             onClick={async () => { await doApprove(); }}
             disabled={decideBusy}
-            className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl disabled:bg-gray-400"
+            variant="contained"
+            color="success"
+            size="large"
+            startIcon={decideBusy ? <CircularProgress size={20} color="inherit" /> : <CheckCircleIcon />}
+            sx={{
+              background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+              "&:hover": { background: "linear-gradient(135deg, #059669 0%, #047857 100%)" },
+            }}
           >
             {decideBusy ? "กำลังบันทึก..." : "อนุมัติ"}
-          </button>
-          <button onClick={() => setShowReject(true)} disabled={decideBusy} className="inline-flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-xl disabled:bg-gray-400">
+          </Button>
+          <Button
+            onClick={() => setShowReject(true)}
+            disabled={decideBusy}
+            variant="contained"
+            color="error"
+            size="large"
+            startIcon={<CancelIcon />}
+            sx={{
+              background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
+              "&:hover": { background: "linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)" },
+            }}
+          >
             ไม่อนุมัติ
-          </button>
-        </div>
+          </Button>
+        </Stack>
       )}
       {!loading && !err && data && thaiStatus(detail?.status || detail?.decision?.status) === "รอดำเนินการ" && allowed === false && (
-        <div className="mt-4 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 no-print">
-          <div className="flex items-start gap-2">
-            <svg className="w-5 h-5 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-            </svg>
-            <div>
-              <div className="font-semibold">คุณมีสิทธิ์ดูอย่างเดียว</div>
-              <div className="mt-0.5">คุณสามารถดูรายละเอียดใบงานได้ แต่ไม่สามารถอนุมัติหรือปฏิเสธได้ หากต้องการสิทธิ์เพิ่มเติม กรุณาติดต่อผู้ดูแลระบบ</div>
-            </div>
-          </div>
-        </div>
+        <Alert severity="warning" sx={{ mb: 3 }} className="no-print">
+          <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+            คุณมีสิทธิ์ดูอย่างเดียว
+          </Typography>
+          <Typography variant="body2">
+            คุณสามารถดูรายละเอียดใบงานได้ แต่ไม่สามารถอนุมัติหรือปฏิเสธได้ หากต้องการสิทธิ์เพิ่มเติม กรุณาติดต่อผู้ดูแลระบบ
+          </Typography>
+        </Alert>
       )}
 
       {/* เนื้อหา */}
       {!loading && !err && data && (
-        <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4" ref={printAreaRef}>
+        <Grid container spacing={3} ref={printAreaRef}>
           {/* ซ้าย: ข้อมูลหลัก */}
-          <section className="lg:col-span-2 space-y-4">
-            {/* 1) ผู้ยื่นคำขอ */}
-            <div className="rounded-2xl border border-gray-200 bg-white p-4">
-              <div className="text-base font-semibold mb-2">1) ผู้ยื่นคำขอ</div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2 text-sm">
-                  <div>
-                    <span className="text-slate-500">ชื่อ-นามสกุล</span>
-                    <div className="font-medium">
-                      {detail?.requester?.fullname || detail?.requester?.name || detail?.contractorName || detail?.requesterName || "-"}
-                    </div>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">บริษัท</span>
-                    <div className="font-medium">{detail?.requester?.company || detail?.company || detail?.contractorCompany || "-"}</div>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">อีเมล</span>
-                    <div className="font-medium">{detail?.requester?.email || detail?.email || "-"}</div>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">เบอร์โทร</span>
-                    <div className="font-medium">{detail?.requester?.phone || detail?.phone || "-"}</div>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">ที่อยู่</span>
-                    <div className="font-medium">{addressFull}</div>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">เลขบัตร/เอกสาร</span>
-                    <div className="font-medium">{toFullId(detail?.requester || {})}</div>
-                  </div>
-                </div>
-                <div className="flex items-start justify-center">
-                  <div className="w-40 h-40 rounded-xl border border-dashed border-slate-300 text-slate-400 flex items-center justify-center text-sm overflow-hidden bg-slate-50">
-                    {requesterPhotoUrl ? (
-                      <img
-                        src={requesterPhotoUrl}
-                        alt="ผู้ยื่นคำขอ"
-                        className="w-full h-full object-cover"
-                        loading="eager"
-                        decoding="async"
+          <Grid item xs={12} lg={8}>
+            <Stack spacing={3}>
+              {/* 1) ผู้ยื่นคำขอ */}
+              <Card sx={{ borderRadius: 3, boxShadow: 2 }}>
+                <CardContent>
+                  <Typography variant="h6" fontWeight={700} gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <PersonIcon color="primary" /> 1) ผู้ยื่นคำขอ
+                  </Typography>
+                  <Divider sx={{ mb: 2 }} />
+                  <Grid container spacing={3}>
+                    <Grid item xs={12} md={7}>
+                      <Stack spacing={2}>
+                        <Box>
+                          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                            <PersonIcon fontSize="small" color="action" />
+                            <Typography variant="caption" color="text.secondary">ชื่อ-นามสกุล</Typography>
+                          </Stack>
+                          <Typography variant="body2" fontWeight={600}>
+                            {detail?.requester?.fullname || detail?.requester?.name || detail?.contractorName || detail?.requesterName || "-"}
+                          </Typography>
+                        </Box>
+                        <Box>
+                          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                            <BusinessIcon fontSize="small" color="action" />
+                            <Typography variant="caption" color="text.secondary">บริษัท</Typography>
+                          </Stack>
+                          <Typography variant="body2" fontWeight={600}>
+                            {detail?.requester?.company || detail?.company || detail?.contractorCompany || "-"}
+                          </Typography>
+                        </Box>
+                        <Box>
+                          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                            <EmailIcon fontSize="small" color="action" />
+                            <Typography variant="caption" color="text.secondary">อีเมล</Typography>
+                          </Stack>
+                          <Typography variant="body2" fontWeight={600}>
+                            {detail?.requester?.email || detail?.email || "-"}
+                          </Typography>
+                        </Box>
+                        <Box>
+                          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                            <PhoneIcon fontSize="small" color="action" />
+                            <Typography variant="caption" color="text.secondary">เบอร์โทร</Typography>
+                          </Stack>
+                          <Typography variant="body2" fontWeight={600}>
+                            {detail?.requester?.phone || detail?.phone || "-"}
+                          </Typography>
+                        </Box>
+                        <Box>
+                          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                            <LocationOnIcon fontSize="small" color="action" />
+                            <Typography variant="caption" color="text.secondary">ที่อยู่</Typography>
+                          </Stack>
+                          <Typography variant="body2" fontWeight={600}>
+                            {addressFull}
+                          </Typography>
+                        </Box>
+                        <Box>
+                          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                            <BadgeIcon fontSize="small" color="action" />
+                            <Typography variant="caption" color="text.secondary">เลขบัตร/เอกสาร</Typography>
+                          </Stack>
+                          <Typography variant="body2" fontWeight={600}>
+                            {toFullId(detail?.requester || {})}
+                          </Typography>
+                        </Box>
+                      </Stack>
+                    </Grid>
+                    <Grid item xs={12} md={5}>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "center",
+                          alignItems: "flex-start",
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            width: 160,
+                            height: 160,
+                            borderRadius: 2,
+                            border: "2px dashed",
+                            borderColor: "divider",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            overflow: "hidden",
+                            bgcolor: "grey.50",
+                          }}
+                        >
+                          {requesterPhotoUrl ? (
+                            <img
+                              src={requesterPhotoUrl}
+                              alt="ผู้ยื่นคำขอ"
+                              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                              loading="eager"
+                              decoding="async"
+                            />
+                          ) : (
+                            <Typography variant="caption" color="text.secondary" align="center">
+                              รูปผู้ขอ<br />(ดูในไฟล์แนบ)
+                            </Typography>
+                          )}
+                        </Box>
+                      </Box>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
+
+              {/* 2) รายละเอียดงาน/สถานที่/เวลา */}
+              <Card sx={{ borderRadius: 3, boxShadow: 2 }}>
+                <CardContent>
+                  <Typography variant="h6" fontWeight={700} gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <WorkIcon color="primary" /> 2) รายละเอียดงาน/สถานที่/เวลา
+                  </Typography>
+                  <Divider sx={{ mb: 2 }} />
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} sm={6}>
+                      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                        <WorkIcon fontSize="small" color="action" />
+                        <Typography variant="caption" color="text.secondary">ประเภทงาน</Typography>
+                      </Stack>
+                      <Typography variant="body2" fontWeight={600}>
+                        {detail?.work?.type || detail?.jobType || detail?.workType || detail?.type || "-"}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                        <LocationOnIcon fontSize="small" color="action" />
+                        <Typography variant="caption" color="text.secondary">พื้นที่ปฏิบัติงาน</Typography>
+                      </Stack>
+                      <Typography variant="body2" fontWeight={600}>
+                        {detail?.work?.area || detail?.area || "-"}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                        <LocationOnIcon fontSize="small" color="action" />
+                        <Typography variant="caption" color="text.secondary">ชั้น/โซน</Typography>
+                      </Stack>
+                      <Typography variant="body2" fontWeight={600}>
+                        {detail?.work?.floor || detail?.floor || "-"}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                        <AccessTimeIcon fontSize="small" color="action" />
+                        <Typography variant="caption" color="text.secondary">ช่วงเวลา</Typography>
+                      </Stack>
+                      <Typography variant="body2" fontWeight={600}>
+                        {text(detail?.work?.from || detail?.time?.start || detail?.from || detail?.startAt)} —{" "}
+                        {text(detail?.work?.to || detail?.time?.end || detail?.to || detail?.endAt)}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                        <LocalFireDepartmentIcon fontSize="small" color="action" />
+                        <Typography variant="caption" color="text.secondary">งานร้อน (Hot Work)</Typography>
+                      </Stack>
+                      <Chip
+                        label={detail?.work?.hotWork || detail?.hotWork ? "มี" : "ไม่มี"}
+                        color={detail?.work?.hotWork || detail?.hotWork ? "error" : "default"}
+                        size="small"
+                        sx={{ fontWeight: 600 }}
                       />
-                    ) : (
-                      <>รูปผู้ขอ<br/>(ดูในไฟล์แนบ)</>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                        <BuildIcon fontSize="small" color="action" />
+                        <Typography variant="caption" color="text.secondary">ระบบอาคารที่เกี่ยวข้อง</Typography>
+                      </Stack>
+                      <Typography variant="body2" fontWeight={600}>
+                        {systemsThai}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={12}>
+                      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                        <BuildIcon fontSize="small" color="action" />
+                        <Typography variant="caption" color="text.secondary">อุปกรณ์นำเข้า/ออก</Typography>
+                      </Stack>
+                      <Typography variant="body2" fontWeight={600}>
+                        {(detail?.work?.equipments?.has ? detail?.work?.equipments?.details || "มี (ไม่ได้ระบุ)" : "ไม่มี") || detail?.equipment || "-"}
+                      </Typography>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
+
+              {/* 3) ผู้ร่วมงาน */}
+              <Card sx={{ borderRadius: 3, boxShadow: 2 }}>
+                <CardContent>
+                  <Typography variant="h6" fontWeight={700} gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <GroupIcon color="primary" /> 3) รายชื่อผู้ร่วมงาน ({workersResolved.length} คน)
+                  </Typography>
+                  <Divider sx={{ mb: 2 }} />
+                  {workersResolved.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 3 }}>
+                      — ไม่มีข้อมูลผู้ร่วมงาน —
+                    </Typography>
+                  ) : (
+                    <Grid container spacing={2}>
+                      {workersResolved.map((p, i) => (
+                        <Grid item xs={12} sm={6} key={i}>
+                          <Card variant="outlined" sx={{ borderRadius: 2, bgcolor: "grey.50" }}>
+                            <CardContent>
+                              <Stack direction="row" spacing={2} alignItems="center">
+                                <Box
+                                  sx={{
+                                    width: 56,
+                                    height: 56,
+                                    flexShrink: 0,
+                                    borderRadius: 2,
+                                    border: "1px solid",
+                                    borderColor: "divider",
+                                    overflow: "hidden",
+                                    bgcolor: "grey.200",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                  }}
+                                >
+                                  {workerThumbUrls[i] ? (
+                                    <img
+                                      src={workerThumbUrls[i]}
+                                      alt={`ผู้ร่วมงาน ${p.name || ""}`}
+                                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                      loading="eager"
+                                      decoding="async"
+                                    />
+                                  ) : (
+                                    <Typography variant="caption" color="text.secondary">
+                                      รูปถ่าย
+                                    </Typography>
+                                  )}
+                                </Box>
+                                <Box sx={{ minWidth: 0, flex: 1 }}>
+                                  <Typography variant="body2" fontWeight={700} noWrap>
+                                    {p.name || "-"}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary" noWrap>
+                                    เลขเอกสาร: {p.__idFull || "-"}
+                                  </Typography>
+                                  {p.isSupervisor && (
+                                    <Chip
+                                      label="ผู้ควบคุม"
+                                      size="small"
+                                      color="primary"
+                                      sx={{ mt: 0.5, height: 20, fontSize: 10 }}
+                                    />
+                                  )}
+                                </Box>
+                              </Stack>
+                            </CardContent>
+                          </Card>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* 4) เวลา/ผู้ตัดสิน */}
+              <Card sx={{ borderRadius: 3, boxShadow: 2 }}>
+                <CardContent>
+                  <Typography variant="h6" fontWeight={700} gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <AccessTimeIcon color="primary" /> 4) บันทึกเวลา/ผู้ตัดสิน
+                  </Typography>
+                  <Divider sx={{ mb: 2 }} />
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} sm={6}>
+                      <Typography variant="caption" color="text.secondary">สร้างเมื่อ</Typography>
+                      <Typography variant="body2" fontWeight={600}>
+                        {fmtDateTimeBE(detail?.createdAt)}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Typography variant="caption" color="text.secondary">อัปเดตล่าสุด</Typography>
+                      <Typography variant="body2" fontWeight={600}>
+                        {fmtDateTimeBE(detail?.updatedAt || detail?.decision?.at)}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Typography variant="caption" color="text.secondary">ผู้ตัดสิน</Typography>
+                      <Typography variant="body2" fontWeight={600}>
+                        {detail?.decision?.by?.displayName
+                          ? `${detail.decision.by.displayName} (${detail.decision.by.email || "-"})`
+                          : (detail?.decision?.byEmail || detail?.approvedByEmail || detail?.rejectedByEmail || "-")}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Typography variant="caption" color="text.secondary">ผลล่าสุด</Typography>
+                      <Typography variant="body2" fontWeight={600}>
+                        {thaiStatus(detail?.status || detail?.decision?.status)}
+                      </Typography>
+                    </Grid>
+                    {(detail?.decision?.reason || detail?.rejectionReason) && (
+                      <Grid item xs={12}>
+                        <Typography variant="caption" color="text.secondary">เหตุผล</Typography>
+                        <Typography variant="body2" fontWeight={600}>
+                          {detail?.decision?.reason || detail?.rejectionReason}
+                        </Typography>
+                      </Grid>
                     )}
-                  </div>
-                </div>
-              </div>
-            </div>
+                  </Grid>
+                </CardContent>
+              </Card>
 
-            {/* 2) รายละเอียดงาน/สถานที่/เวลา */}
-            <div className="rounded-2xl border border-gray-200 bg-white p-4">
-              <div className="text-base font-semibold mb-2">2) รายละเอียดงาน/สถานที่/เวลา</div>
-              <div className="grid md:grid-cols-2 gap-2 text-sm">
-                <div>
-                  <div className="text-gray-500">ประเภทงาน</div>
-                  <div className="font-medium">{detail?.work?.type || detail?.jobType || detail?.workType || detail?.type || "-"}</div>
-                </div>
-                <div>
-                  <div className="text-gray-500">พื้นที่ปฏิบัติงาน</div>
-                  <div className="font-medium">{detail?.work?.area || detail?.area || "-"}</div>
-                </div>
-                <div>
-                  <div className="text-gray-500">ชั้น/โซน</div>
-                  <div className="font-medium">{detail?.work?.floor || detail?.floor || "-"}</div>
-                </div>
-                <div>
-                  <div className="text-gray-500">ช่วงเวลา</div>
-                  <div className="font-medium">
-                    {text(detail?.work?.from || detail?.time?.start || detail?.from || detail?.startAt)} —{" "}
-                    {text(detail?.work?.to || detail?.time?.end || detail?.to || detail?.endAt)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-gray-500">งานร้อน (Hot Work)</div>
-                  <div className="font-medium">{detail?.work?.hotWork || detail?.hotWork ? "มี" : "ไม่มี"}</div>
-                </div>
-                <div>
-                  <div className="text-gray-500">ระบบอาคารที่เกี่ยวข้อง</div>
-                  <div className="font-medium">{systemsThai}</div>
-                </div>
-                <div className="md:col-span-2">
-                  <div className="text-gray-500">อุปกรณ์นำเข้า/ออก</div>
-                  <div className="font-medium">
-                    {(detail?.work?.equipments?.has ? detail?.work?.equipments?.details || "มี (ไม่ได้ระบุ)" : "ไม่มี") || detail?.equipment || "-"}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 3) ผู้ร่วมงาน */}
-            <div className="rounded-2xl border border-gray-200 bg-white p-4">
-              <div className="text-base font-semibold mb-2">3) รายชื่อผู้ร่วมงาน ({workersResolved.length} คน)</div>
-              {workersResolved.length === 0 ? (
-                <div className="text-sm text-gray-500">— ไม่มีข้อมูลผู้ร่วมงาน —</div>
-              ) : (
-                <div className="grid md:grid-cols-2 gap-3">
-                  {workersResolved.map((p, i) => (
-                    <div key={i} className="flex gap-3 items-center rounded-2xl border border-slate-200/70 bg-white/60 p-3">
-                      <div className="w-14 h-14 flex-shrink-0 rounded-xl border border-slate-200 overflow-hidden bg-slate-100">
-                        {workerThumbUrls[i] ? (
-                          <img
-                            src={workerThumbUrls[i]}
-                            alt={`ผู้ร่วมงาน ${p.name || ""}`}
-                            className="w-full h-full object-cover"
-                            loading="eager"
-                            decoding="async"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs">
-                            รูปถ่าย
-                          </div>
+              {/* 5) ประวัติการเข้า-ออกหน้างาน */}
+              <Card sx={{ borderRadius: 3, boxShadow: 2 }}>
+                <CardContent>
+                  <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
+                    <Typography variant="h6" fontWeight={700} sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                      <LoginIcon color="primary" /> 5) ประวัติการเข้า-ออกหน้างาน
+                    </Typography>
+                    {opDateParam && (
+                      <Button
+                        component={Link}
+                        to={`/admin/daily-operations?date=${opDateParam}`}
+                        size="small"
+                        variant="outlined"
+                        title="ไปดูวันนั้นในงานประจำวัน"
+                      >
+                        ดูงานประจำวัน
+                      </Button>
+                    )}
+                  </Stack>
+                  <Divider sx={{ mb: 2 }} />
+                  <Grid container spacing={3}>
+                    <Grid item xs={12} sm={6}>
+                      <Stack spacing={1}>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <LoginIcon fontSize="small" color="success" />
+                          <Typography variant="caption" color="text.secondary">เข้าเมื่อ</Typography>
+                        </Stack>
+                        <Typography variant="body2" fontWeight={700}>
+                          {fmtDateTimeBE(checkInAtFinal)}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {whoInFinal || "-"}
+                        </Typography>
+                        {checkInNoteFinal && (
+                          <Typography variant="caption" color="text.secondary">
+                            เหตุผล: {String(checkInNoteFinal)}
+                          </Typography>
                         )}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="font-medium truncate">{p.name || "-"}</div>
-                        <div className="text-slate-500 text-sm">เลขเอกสาร: {p.__idFull || "-"}</div>
-                        {p.isSupervisor && (
-                          <span className="inline-block mt-1 px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 text-xs">
-                            ผู้ควบคุม
-                          </span>
+                      </Stack>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Stack spacing={1}>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <LogoutIcon fontSize="small" color="error" />
+                          <Typography variant="caption" color="text.secondary">ออกเมื่อ</Typography>
+                        </Stack>
+                        <Typography variant="body2" fontWeight={700}>
+                          {fmtDateTimeBE(checkOutAtFinal)}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {whoOutFinal || "-"}
+                        </Typography>
+                        {checkOutNoteFinal && (
+                          <Typography variant="caption" color="text.secondary">
+                            เหตุผล: {String(checkOutNoteFinal)}
+                          </Typography>
                         )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* 4) เวลา/ผู้ตัดสิน */}
-            <div className="rounded-2xl border border-gray-200 bg-white p-4">
-              <div className="text-base font-semibold mb-2">4) บันทึกเวลา/ผู้ตัดสิน</div>
-              <div className="grid md:grid-cols-2 gap-2 text-sm">
-                <div>
-                  <div className="text-gray-500">สร้างเมื่อ</div>
-                  <div className="font-medium">{fmtDateTimeBE(detail?.createdAt)}</div>
-                </div>
-                <div>
-                  <div className="text-gray-500">อัปเดตล่าสุด</div>
-                  <div className="font-medium">{fmtDateTimeBE(detail?.updatedAt || detail?.decision?.at)}</div>
-                </div>
-                <div>
-                  <div className="text-gray-500">ผู้ตัดสิน</div>
-                  <div className="font-medium">
-                    {detail?.decision?.by?.displayName
-                      ? `${detail.decision.by.displayName} (${detail.decision.by.email || "-"})`
-                      : (detail?.decision?.byEmail || detail?.approvedByEmail || detail?.rejectedByEmail || "-")}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-gray-500">ผลล่าสุด</div>
-                  <div className="font-medium">{thaiStatus(detail?.status || detail?.decision?.status)}</div>
-                </div>
-                {(detail?.decision?.reason || detail?.rejectionReason) && (
-                  <div className="md:col-span-2">
-                    <div className="text-gray-500">เหตุผล</div>
-                    <div className="font-medium">{detail?.decision?.reason || detail?.rejectionReason}</div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* 5) ประวัติการเข้า-ออกหน้างาน (แบบย่อ) */}
-            <div className="rounded-2xl border border-gray-200 bg-white p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-base font-semibold">5) ประวัติการเข้า-ออกหน้างาน</div>
-                {opDateParam && (
-                  <Link
-                    to={`/admin/daily-operations?date=${opDateParam}`}
-                    className="text-sm px-3 py-1 rounded-lg border border-slate-300 hover:bg-slate-50"
-                    title="ไปดูวันนั้นในงานประจำวัน"
-                  >
-                    ไปดูวันนั้นในงานประจำวัน
-                  </Link>
-                )}
-              </div>
-              <div className="grid md:grid-cols-2 gap-2 text-sm">
-                <div>
-                  <div className="text-gray-500">เข้าเมื่อ</div>
-                  <div className="font-medium">{fmtDateTimeBE(checkInAtFinal)}</div>
-                  <div className="text-slate-600 mt-0.5">{whoInFinal || "-"}</div>
-                  {checkInNoteFinal ? (
-                    <div className="text-slate-500 mt-0.5">เหตุผล: {String(checkInNoteFinal)}</div>
-                  ) : null}
-                </div>
-                <div>
-                  <div className="text-gray-500">ออกเมื่อ</div>
-                  <div className="font-medium">{fmtDateTimeBE(checkOutAtFinal)}</div>
-                  <div className="text-slate-600 mt-0.5">{whoOutFinal || "-"}</div>
-                  {checkOutNoteFinal ? (
-                    <div className="text-slate-500 mt-0.5">เหตุผล: {String(checkOutNoteFinal)}</div>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          </section>
+                      </Stack>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
+            </Stack>
+          </Grid>
 
           {/* ขวา: ImageViewer */}
-          <ImageViewer
-            images={[...workerImageItems, ...attachmentImageItems]}
-            idCardCleanPath={detail?.images?.idCardCleanPath}
-            idCardStampedPath={detail?.images?.idCardStampedPath}
-            idCardCleanUrl={detail?.images?.idCardCleanUrl}
-            idCardStampedUrl={detail?.images?.idCardStampedUrl}
-            className="lg:col-span-1"
-          />
-        </div>
+          <Grid item xs={12} lg={4}>
+            <ImageViewer
+              images={[...workerImageItems, ...attachmentImageItems]}
+              idCardCleanPath={detail?.images?.idCardCleanPath}
+              idCardStampedPath={detail?.images?.idCardStampedPath}
+              idCardCleanUrl={detail?.images?.idCardCleanUrl}
+              idCardStampedUrl={detail?.images?.idCardStampedUrl}
+            />
+          </Grid>
+        </Grid>
       )}
 
       {!loading && !err && !data && (
-        <div className="mt-6 p-8 text-center text-gray-500">
-          <div className="text-lg font-medium">ไม่พบข้อมูล</div>
-          <div className="text-sm mt-2">RID: {ridParam}</div>
-          <button onClick={() => window.location.reload()} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-            โหลดข้อมูลใหม่
-          </button>
-        </div>
+        <Card sx={{ mt: 4, textAlign: "center", py: 6 }}>
+          <CardContent>
+            <Typography variant="h6" fontWeight={600} gutterBottom>
+              ไม่พบข้อมูล
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              RID: {ridParam}
+            </Typography>
+            <Button
+              onClick={() => window.location.reload()}
+              variant="contained"
+              sx={{
+                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+              }}
+            >
+              โหลดข้อมูลใหม่
+            </Button>
+          </CardContent>
+        </Card>
       )}
 
       {/* Modal ไม่อนุมัติ */}
-      {showReject && (
-        <div className="fixed inset-0 z-[60] no-print">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={()=>!decideBusy && setShowReject(false)} />
-          <div className="absolute inset-0 flex items-center justify-center p-4">
-            <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl ring-1 ring-rose-200 animate-[fadeIn_120ms_ease-out]">
-              <div className="p-6">
-                <div className="flex items-start gap-3">
-                  <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-rose-100 text-rose-700 ring-1 ring-rose-200">
-                    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
-                      <path d="M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.4 4.3 19.71 2.89 18.3 9.17 12 2.89 5.71 4.3 4.29 10.59 10.6 16.89 4.29z"/>
-                    </svg>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-lg font-semibold">เหตุผลที่ไม่อนุมัติ</div>
-                    <p className="mt-1 text-slate-600">กรุณาระบุเหตุผลอย่างน้อย 1 บรรทัด</p>
-                  </div>
-                </div>
+      <Dialog
+        open={showReject}
+        onClose={() => !decideBusy && setShowReject(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}
+        className="no-print"
+      >
+        <DialogTitle sx={{ bgcolor: "error.light", color: "error.contrastText" }}>
+          <Stack direction="row" spacing={2} alignItems="center">
+            <CancelIcon />
+            <Box>
+              <Typography variant="h6" fontWeight={700}>
+                เหตุผลที่ไม่อนุมัติ
+              </Typography>
+              <Typography variant="caption">
+                กรุณาระบุเหตุผลอย่างน้อย 1 บรรทัด
+              </Typography>
+            </Box>
+          </Stack>
+        </DialogTitle>
+        <DialogContent sx={{ mt: 3 }}>
+          <TextField
+            fullWidth
+            multiline
+            rows={4}
+            placeholder="เอกสารไม่ครบ / ต้องแนบแบบแปลน / ฯลฯ"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            autoFocus
+            variant="outlined"
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 3, bgcolor: "grey.50" }}>
+          <Button
+            onClick={() => setShowReject(false)}
+            disabled={decideBusy}
+            variant="outlined"
+          >
+            ยกเลิก
+          </Button>
+          <Button
+            onClick={async () => { await doReject(); }}
+            disabled={decideBusy || !reason.trim()}
+            variant="contained"
+            color="error"
+            startIcon={decideBusy ? <CircularProgress size={16} color="inherit" /> : <CancelIcon />}
+            sx={{
+              background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
+              "&:hover": { background: "linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)" },
+            }}
+          >
+            {decideBusy ? "กำลังบันทึก..." : "ยืนยันไม่อนุมัติ"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
-                <textarea
-                  className="mt-4 w-full border rounded-lg p-3 text-sm resize-none h-28 focus:outline-none focus:ring-2 focus:ring-rose-300"
-                  placeholder="เอกสารไม่ครบ / ต้องแนบแบบแปลน / ฯลฯ"
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                />
-
-                <div className="mt-5 flex gap-3">
-                  <button
-                    onClick={() => setShowReject(false)}
-                    disabled={decideBusy}
-                    className="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-60"
-                  >
-                    ยกเลิก
-                  </button>
-                  <button
-                    onClick={async () => { await doReject(); }}
-                    disabled={decideBusy || !reason.trim()}
-                    className="flex-1 px-3 py-2 rounded-lg text-white bg-rose-600 hover:bg-rose-700 disabled:bg-gray-400"
-                  >
-                    {decideBusy ? "กำลังบันทึก..." : "ยืนยันไม่อนุมัติ"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <Toasts items={toasts} onDismiss={(id)=>setToasts(xs=>xs.filter(t=>t.id!==id))} />
-    </div>
+      {/* Snackbar สำหรับแจ้งเตือน */}
+      {toasts.map((t) => (
+        <Snackbar
+          key={t.id}
+          open={true}
+          autoHideDuration={3000}
+          onClose={() => setToasts((xs) => xs.filter((x) => x.id !== t.id))}
+          anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        >
+          <Alert
+            severity={t.kind}
+            onClose={() => setToasts((xs) => xs.filter((x) => x.id !== t.id))}
+            sx={{ width: "100%", minWidth: 300 }}
+          >
+            <Typography variant="subtitle2" fontWeight={600}>
+              {t.title}
+            </Typography>
+            {t.message && (
+              <Typography variant="body2">{t.message}</Typography>
+            )}
+          </Alert>
+        </Snackbar>
+      ))}
+    </Box>
   );
 }
