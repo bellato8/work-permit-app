@@ -1,19 +1,46 @@
 // ======================================================================
 // File: functions/scripts/initCollections.js
 // Task 11: Initialize checkIns & checkOuts Collections
-// วิธีใช้: node functions/scripts/initCollections.js
+// วิธีใช้: 
+//   - Dev:  node functions/scripts/initCollections.js
+//   - Prod: NODE_ENV=production node functions/scripts/initCollections.js
 // ======================================================================
 
 const admin = require("firebase-admin");
+const fs = require("fs");
+const path = require("path");
+
+// เลือก Service Account ตาม Environment
+const env = process.env.NODE_ENV || 'development';
+const isProd = env === 'production';
+
+console.log('🔧 Environment:', env);
 
 // ตรวจสอบว่ามี service account key หรือไม่
 let serviceAccount;
+let serviceAccountPath;
+
+if (isProd) {
+  serviceAccountPath = path.join(__dirname, "../service-account-key.json");
+} else {
+  serviceAccountPath = path.join(__dirname, "../service-account-key-dev.json");
+}
+
+console.log('📁 Looking for Service Account:', serviceAccountPath);
+
 try {
-  serviceAccount = require("../service-account-key.json");
+  if (!fs.existsSync(serviceAccountPath)) {
+    throw new Error('File not found');
+  }
+  serviceAccount = require(serviceAccountPath);
+  console.log('✅ Service Account loaded successfully');
+  console.log('🎯 Target Project:', serviceAccount.project_id);
 } catch (error) {
-  console.log("⚠️  ไม่พบไฟล์ service-account-key.json");
+  console.log("\n❌ ไม่พบไฟล์ Service Account:", serviceAccountPath);
   console.log("💡 กรุณาดาวน์โหลดจาก Firebase Console → Project Settings → Service Accounts");
-  console.log("💡 หรือใช้ GOOGLE_APPLICATION_CREDENTIALS environment variable");
+  console.log("💡 สำหรับ Dev ให้ตั้งชื่อไฟล์เป็น: service-account-key-dev.json");
+  console.log("💡 สำหรับ Prod ให้ตั้งชื่อไฟล์เป็น: service-account-key.json");
+  console.log("💡 หรือใช้ GOOGLE_APPLICATION_CREDENTIALS environment variable\n");
   process.exit(1);
 }
 
@@ -23,6 +50,7 @@ admin.initializeApp({
 });
 
 const db = admin.firestore();
+const projectId = serviceAccount.project_id;
 
 /**
  * สร้าง Collections พร้อมเอกสารตัวอย่าง
@@ -92,7 +120,7 @@ async function initCollections() {
     console.log("   - status (Ascending)\n");
     
     console.log("🔗 สร้าง Indexes ได้ที่:");
-    console.log("   https://console.firebase.google.com/project/work-permit-app-1e9f0/firestore/indexes\n");
+    console.log(`   https://console.firebase.google.com/project/${projectId}/firestore/indexes\n` );
 
   } catch (error) {
     console.error("❌ เกิดข้อผิดพลาด:", error);

@@ -1,5 +1,6 @@
 {
   "projects": {
-    "default": "work-permit-app-1e9f0"
+    "production": "work-permit-app-1e9f0",
+    "development": "work-permit-app-dev"
   }
 }

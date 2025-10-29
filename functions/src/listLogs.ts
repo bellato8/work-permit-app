@@ -19,11 +19,13 @@ const db = getFirestore();
 
 // CORS (คอร์ส = ข้ามโดเมน)
 const ALLOWED_ORIGINS = new Set<string>([
-  "https://imperialworld.asia",
-  "https://staging.imperialworld.asia",
-  "http://localhost:5173",
-  "https://work-permit-app-1e9f0.web.app",
-  "https://work-permit-app-1e9f0.firebaseapp.com",
+  "http://localhost:5173",                          // dev ในเครื่อง
+  "https://work-permit-app-dev.web.app",            // ⭐ เพิ่ม: เว็บ Dev
+  "https://work-permit-app-dev.firebaseapp.com",    // ⭐ เพิ่ม: เว็บ Dev (URL สำรอง )
+  "https://work-permit-app-1e9f0.web.app",          // โฮสต์จริง (Prod )
+  "https://work-permit-app-1e9f0.firebaseapp.com",  // โฮสต์จริง (Prod - URL สำรอง )
+  "https://imperialworld.asia",                     // โดเมนจริง
+  "https://staging.imperialworld.asia",             // โดเมนสเตจจิง
 ]);
 function setCors(req: any, res: any) {
   const origin = req.headers.origin;
