@@ -1,15 +1,17 @@
 "use strict";
 // ======================================================================
 // File: functions/src/index.ts
-// เวอร์ชัน: 2025-10-24 (เพิ่ม export functions ที่หายไป)
-// หน้าที่: Export Cloud Functions (เฉพาะที่มีจริงและทำงานได้)
-// หมายเหตุ: การ "ส่งออก" ฟังก์ชันจากไฟล์นี้เป็นขั้นที่จำเป็น
-// เพื่อให้ Firebase รวมและเปิดเป็น HTTP endpoint หลัง deploy
-// อ้างอิง: ใช้ไฟล์ index.ts เป็นศูนย์รวมการ export ตามแนวทาง Firebase
-// https://firebase.google.com/docs/functions/typescript
+// เวอร์ชัน: 26/10/2025 22:45 (Asia/Bangkok)
+// หน้าที่: รวม/ส่งออก Cloud Functions ทั้งหมดให้ Firebase deploy เป็น endpoint
+// เปลี่ยนแปลงรอบนี้:
+//   • จัดหมวดหมู่ + คอมเมนต์ให้ชัดเจน
+//   • คง export ฟังก์ชันเดิมทั้งหมด และยืนยันการส่งออก createContractorLink (LP Module)
+// หมายเหตุ:
+//   • ห้าม export ไฟล์ที่ “ยังไม่มีจริง” เพราะจะทำให้ build ล้มเหลว
+//   • เมื่อพร้อม mockPermitSubmitted ค่อยมาเพิ่ม export ภายหลัง
 // ======================================================================
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getStatus = exports.ensureCreatedAt = exports.onRequestUpdatedNotifyRequester = exports.onRequestCreatedNotifyApprovers = exports.onRequestCreated = exports.applyRolesOnSignIn = exports.inviteAdmin = exports.logAuth = exports.cleanupDeleteLogs = exports.deleteRequestCascade = exports.deleteLogs = exports.listLogs = exports.proxyListRequests = exports.proxyListAdmins = exports.updateStatus = exports.listRequests = exports.getRequestAdmin = exports.getCalendarView = exports.checkOutRequest = exports.checkInRequest = exports.getDailyWorkByDate = exports.updateAdminPermissions = exports.updateAdminRole = exports.removeadmin = exports.addadmin = exports.listadmins = void 0;
+exports.mockPermitSubmitted = exports.createContractorLink = exports.getStatus = exports.ensureCreatedAt = exports.onRequestUpdatedNotifyRequester = exports.onRequestCreatedNotifyApprovers = exports.onRequestCreated = exports.applyRolesOnSignIn = exports.inviteAdmin = exports.logAuth = exports.cleanupDeleteLogs = exports.deleteRequestCascade = exports.deleteLogs = exports.listLogs = exports.proxyListRequests = exports.proxyListAdmins = exports.updateStatus = exports.listRequests = exports.getRequestAdmin = exports.getCalendarView = exports.checkOutRequest = exports.checkInRequest = exports.getDailyWorkByDate = exports.updateAdminPermissions = exports.updateAdminRole = exports.removeadmin = exports.addadmin = exports.listadmins = void 0;
 // ==================== Admin Management ====================
 var adminUsers_1 = require("./adminUsers");
 Object.defineProperty(exports, "listadmins", { enumerable: true, get: function () { return adminUsers_1.listadmins; } });
@@ -68,3 +70,11 @@ var ensureCreatedAt_1 = require("./ensureCreatedAt");
 Object.defineProperty(exports, "ensureCreatedAt", { enumerable: true, get: function () { return ensureCreatedAt_1.ensureCreatedAt; } });
 var getStatus_1 = require("./getStatus");
 Object.defineProperty(exports, "getStatus", { enumerable: true, get: function () { return getStatus_1.getStatus; } });
+// ==================== LP Module (Module 2) ====================
+// อนุมัติเบื้องต้น → สร้าง RID + อัปเดตสถานะ + คืน URL mock สำหรับผู้รับเหมา
+var createContractorLink_1 = require("./createContractorLink");
+Object.defineProperty(exports, "createContractorLink", { enumerable: true, get: function () { return createContractorLink_1.createContractorLink; } });
+// จำลองการที่ผู้รับเหมากรอกฟอร์ม (Module 3) เสร็จและส่งมา → เปลี่ยนสถานะเป็น 'รอ LP ตรวจสอบ'
+// ⚠️ MOCK สำหรับทดสอบเท่านั้น - ใน Production จริง Module 3 จะทำหน้าที่นี้
+var mockPermitSubmitted_1 = require("./mockPermitSubmitted");
+Object.defineProperty(exports, "mockPermitSubmitted", { enumerable: true, get: function () { return mockPermitSubmitted_1.mockPermitSubmitted; } });

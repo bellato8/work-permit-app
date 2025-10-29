@@ -1,6 +1,9 @@
 {
   "projects": {
     "production": "work-permit-app-1e9f0",
-    "development": "work-permit-app-dev"
-  }
+    "development": "work-permit-app-dev",
+    "dev": "work-permit-app-dev"
+  },
+  "targets": {},
+  "etags": {}
 }

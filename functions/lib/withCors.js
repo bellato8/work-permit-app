@@ -13,12 +13,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.withCors = withCors;
 // ต้นทางที่อนุญาตแบบระบุชัด (exact match)
 const EXACT_ORIGINS = new Set([
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "https://work-permit-app-1e9f0.web.app",
-    "https://work-permit-app-1e9f0.firebaseapp.com",
-    "https://imperialworld.asia",
-    "https://staging.imperialworld.asia",
+    "http://localhost:5173", // dev ในเครื่อง
+    "https://work-permit-app-dev.web.app", // ⭐ เพิ่ม: เว็บ Dev
+    "https://work-permit-app-dev.firebaseapp.com", // ⭐ เพิ่ม: เว็บ Dev (URL สำรอง )
+    "https://work-permit-app-1e9f0.web.app", // โฮสต์จริง (Prod )
+    "https://work-permit-app-1e9f0.firebaseapp.com", // โฮสต์จริง (Prod - URL สำรอง )
+    "https://imperialworld.asia", // โดเมนจริง
+    "https://staging.imperialworld.asia", // โดเมนสเตจจิง
 ]);
 // รูปแบบโดเมนที่อนุญาต (เช่น preview channel / subdomain)
 const REGEX_ORIGINS = [
