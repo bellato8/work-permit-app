@@ -36,7 +36,7 @@ const ENV_CONFIGS: Record<Environment, EnvConfig> = {
   },
   prod: {
     projectId: 'work-permit-app-1e9f0',
-    serviceAccountPath: './admin-sa-prod.json',
+    serviceAccountPath: './admin-sa.json',
     displayName: '🚀 Production',
     color: '\x1b[31m' // Red
   }
@@ -293,7 +293,7 @@ function showUsageAndExit(): never {
   console.log('  --dry-run     Preview changes without modifying data');
   console.log('\nService Account Files Required:');
   console.log('  ./admin-sa-dev.json   - For development environment');
-  console.log('  ./admin-sa-prod.json  - For production environment');
+  console.log('  ./admin-sa.json       - For production environment');
   console.log('='.repeat(70) + '\n');
   process.exit(1);
 }
