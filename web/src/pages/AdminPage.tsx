@@ -15,9 +15,16 @@ import { getAuth } from "firebase/auth";
 
 type ApiResp = { ok: boolean; error?: string; message?: string };
 
-const UPDATE_URL =
-  ((import.meta.env.VITE_UPDATE_STATUS_URL as string | undefined)?.trim()) ||
-  "https://updatestatus-aa5gfxjdmq-as.a.run.app"; // ปรับให้ตรงโปรเจกต์จริงหากต่าง
+// ⚠️ ห้าม hardcode URL - ต้องตั้งค่า VITE_UPDATE_STATUS_URL ใน .env
+const UPDATE_URL = import.meta.env.VITE_UPDATE_STATUS_URL as string | undefined;
+
+if (!UPDATE_URL || UPDATE_URL.trim() === "") {
+  throw new Error(
+    "❌ VITE_UPDATE_STATUS_URL ไม่พบในไฟล์ .env\n" +
+    "กรุณาเพิ่มในไฟล์ .env.local:\n" +
+    "VITE_UPDATE_STATUS_URL=https://your-api.example.com/updateStatus"
+  );
+}
 
 function useInitials() {
   return useMemo(() => {

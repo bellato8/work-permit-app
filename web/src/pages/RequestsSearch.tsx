@@ -5,45 +5,53 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 
-// ---- Fallback URL กันพังเวลายังไม่ได้ตั้ง .env ----
-const HARD_LIST_URL = "https://listrequests-aa5gfxjdmq-as.a.run.app";
-const HARD_BASE_URL =
-  "https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net";
-
+// ⚠️ ห้าม hardcode URLs - ต้องตั้งค่า environment variables ใน .env
 const ENV = (import.meta as any)?.env ?? {};
 
-// อ่านคีย์จาก env → localStorage → fallback
+// อ่านคีย์จาก env → localStorage (ห้ามใช้ fallback hardcoded)
 function resolveKey() {
   const fromEnv = (ENV?.VITE_APPROVER_KEY ?? "").toString().trim();
   const fromLS =
     typeof window !== "undefined"
       ? (localStorage.getItem("wp_key") ?? "").trim()
       : "";
-  const fallback = "apl-2025"; // ใช้สำหรับ dev เท่านั้น (อย่าคอมมิตขึ้น prod)
-  return fromEnv || fromLS || fallback;
+
+  if (!fromEnv && !fromLS) {
+    throw new Error(
+      "❌ VITE_APPROVER_KEY ไม่พบในไฟล์ .env\n" +
+      "กรุณาเพิ่มในไฟล์ .env.local:\n" +
+      "VITE_APPROVER_KEY=your-api-key-here"
+    );
+  }
+
+  return fromEnv || fromLS;
 }
 
 // ประกอบ URL listRequests พร้อมแนบ ?key=...
 function buildListUrl(params: URLSearchParams, key: string) {
   if (key) params.set("key", key);
 
+  // ลำดับความสำคัญ: VITE_LIST_REQUESTS_URL → VITE_FUNCTIONS_BASE/listRequests
   const direct = ENV?.VITE_LIST_REQUESTS_URL?.toString()?.trim();
   if (direct) {
     const u = new URL(direct);
     u.search = params.toString();
     return u.toString();
   }
+
   const base = ENV?.VITE_FUNCTIONS_BASE?.toString()?.trim()?.replace(/\/+$/, "");
-  if (base) return `${base}/listRequests?${params.toString()}`;
-
-  if (HARD_LIST_URL) {
-    const u = new URL(HARD_LIST_URL);
-    u.search = params.toString();
-    return u.toString();
+  if (base) {
+    return `${base}/listRequests?${params.toString()}`;
   }
-  if (HARD_BASE_URL) return `${HARD_BASE_URL}/listRequests?${params.toString()}`;
 
-  return `/listRequests?${params.toString()}`;
+  // ⚠️ ถ้าไม่มีทั้ง 2 ตัวแปรข้างบน ให้ throw error
+  throw new Error(
+    "❌ API URL ไม่พบในไฟล์ .env\n" +
+    "กรุณาเพิ่มอย่างน้อยหนึ่งตัวแปรในไฟล์ .env.local:\n" +
+    "VITE_LIST_REQUESTS_URL=https://your-api.example.com/listRequests\n" +
+    "หรือ\n" +
+    "VITE_FUNCTIONS_BASE=https://region-project.cloudfunctions.net"
+  );
 }
 
 // ------- types -------

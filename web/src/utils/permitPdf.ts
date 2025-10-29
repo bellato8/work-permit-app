@@ -452,9 +452,19 @@ export async function generatePermitPDF(apiPayload: any) {
   }
 
   // QR ไปหน้า Status
+  // ⚠️ ห้าม hardcode company URL - ใช้ window.location.origin หรือ VITE_COMPANY_WEBSITE_URL
   const origin = (typeof window !== "undefined" && window.location?.origin)
     ? window.location.origin
-    : "https://imperialworld.asia";
+    : (import.meta as any).env?.VITE_COMPANY_WEBSITE_URL || "";
+
+  if (!origin) {
+    console.warn(
+      "⚠️ ไม่พบ origin สำหรับสร้าง QR code\n" +
+      "กรุณาเพิ่มในไฟล์ .env.local:\n" +
+      "VITE_COMPANY_WEBSITE_URL=https://your-company-website.com"
+    );
+  }
+
   const statusLink = `${origin}/status?rid=${encodeURIComponent(rid)}`;
   const qrX = pageW(doc) - MARGIN_R - QR_SIDE;
   const qrY = pageH(doc) - 160;
@@ -474,10 +484,17 @@ export async function generatePermitPDF(apiPayload: any) {
 
 // สำหรับหน้า /status
 export async function printPermitFromGetStatus(rid: string, last4: string, baseUrl?: string) {
-  const base =
-    baseUrl ||
-    (import.meta as any).env?.VITE_GET_STATUS_URL ||
-    "https://getstatus-aa5gfxjdmq-as.a.run.app";
+  // ⚠️ ห้าม hardcode URL - ต้องตั้งค่า VITE_GET_STATUS_URL ใน .env
+  const base = baseUrl || (import.meta as any).env?.VITE_GET_STATUS_URL;
+
+  if (!base) {
+    throw new Error(
+      "❌ VITE_GET_STATUS_URL ไม่พบในไฟล์ .env\n" +
+      "กรุณาเพิ่มในไฟล์ .env.local:\n" +
+      "VITE_GET_STATUS_URL=https://your-api.example.com/getStatus"
+    );
+  }
+
   const u = new URL(base);
   u.searchParams.set("rid", rid);
   u.searchParams.set("pdf", "1");

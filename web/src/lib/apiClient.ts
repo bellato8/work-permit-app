@@ -14,10 +14,18 @@
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { getApproverHeaders } from "./approverHeaders";
 
+// ⚠️ ห้าม hardcode URL - ต้องตั้งค่า VITE_FUNCTIONS_BASE ใน .env
 // ฐาน URL เรียกฟังก์ชัน (ถ้า path ไม่ใช่ http จะต่อท้าย BASE นี้)
-const FUNCTIONS_BASE =
-  (import.meta as any).env?.VITE_FUNCTIONS_BASE ??
-  "https://asia-southeast1-work-permit-app-1e9f0.cloudfunctions.net";
+const FUNCTIONS_BASE = (import.meta as any).env?.VITE_FUNCTIONS_BASE as string | undefined;
+
+if (!FUNCTIONS_BASE || FUNCTIONS_BASE.trim() === "") {
+  console.warn(
+    "⚠️ VITE_FUNCTIONS_BASE ไม่พบในไฟล์ .env\n" +
+    "กรุณาเพิ่มในไฟล์ .env.local:\n" +
+    "VITE_FUNCTIONS_BASE=https://region-project.cloudfunctions.net\n" +
+    "หมายเหตุ: relative URLs จะไม่ทำงาน"
+  );
+}
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 

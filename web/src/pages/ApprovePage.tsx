@@ -7,9 +7,16 @@ import React, { useMemo, useState } from "react";
 
 type ApiResp = { ok: boolean; error?: string };
 
-const UPDATE_URL =
-  ((import.meta.env.VITE_UPDATE_STATUS_URL as string | undefined)?.trim()) ||
-  "https://updatestatus-aa5gfxjdmq-as.a.run.app";
+// ⚠️ ห้าม hardcode URL - ต้องตั้งค่า VITE_UPDATE_STATUS_URL ใน .env
+const UPDATE_URL = import.meta.env.VITE_UPDATE_STATUS_URL as string | undefined;
+
+if (!UPDATE_URL || UPDATE_URL.trim() === "") {
+  throw new Error(
+    "❌ VITE_UPDATE_STATUS_URL ไม่พบในไฟล์ .env\n" +
+    "กรุณาเพิ่มในไฟล์ .env.local:\n" +
+    "VITE_UPDATE_STATUS_URL=https://your-api.example.com/updateStatus"
+  );
+}
 
 export default function ApprovePage() {
   const { initialRid, initialKey } = useMemo(() => {
