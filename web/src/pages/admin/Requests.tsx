@@ -1,13 +1,34 @@
 // web/src/pages/admin/Requests.tsx
 // ---------------------------------------------------------------------
 // หน้าแอดมิน: แสดงรายการคำขอ โดยเรียกผ่าน API client (แนบ Bearer อัตโนมัติ)
-// คำศัพท์:
-// - Bearer (แบเรอร์) = วิธีส่งโทเคนในหัว Authorization
-// - Authorization (ออเธอไรเซชัน) = ส่วนหัวบอกสิทธิ์เข้าถึง
+// เวอร์ชัน: Material-UI (MUI v7)
 // ---------------------------------------------------------------------
 
 import React, { useEffect, useState } from "react";
 import { apiListRequests, type RequestItem } from "../../lib/apiClient";
+
+// MUI Components
+import {
+  Box,
+  Card,
+  CardContent,
+  Typography,
+  Button,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  TableContainer,
+  Chip,
+  CircularProgress,
+  Alert,
+  Stack,
+  Paper,
+} from "@mui/material";
+
+// MUI Icons
+import RefreshIcon from "@mui/icons-material/Refresh";
 
 type LoadState = "idle" | "loading" | "ok" | "error";
 
@@ -35,103 +56,159 @@ export default function Requests() {
   }, []);
 
   return (
-    <div style={{ padding: 16 }}>
-      <h1 style={{ margin: "0 0 12px 0" }}>รายการคำขอ (Admin)</h1>
-
-      <div style={{ marginBottom: 12, display: "flex", gap: 8 }}>
-        <button onClick={load}>รีเฟรช</button>
-        {state === "loading" && <span>กำลังโหลด…</span>}
-        {state === "error" && (
-          <span style={{ color: "crimson" }}>
-            เกิดข้อผิดพลาด: {errMsg}
-          </span>
-        )}
-      </div>
-
-      <div style={{ overflowX: "auto" }}>
-        <table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            minWidth: 720,
-          }}
-        >
-          <thead>
-            <tr>
-              <th style={th}>RID</th>
-              <th style={th}>สถานะ</th>
-              <th style={th}>ชื่อผู้รับเหมา</th>
-              <th style={th}>สร้างเมื่อ</th>
-              <th style={th}>อัปเดตล่าสุด</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.length === 0 ? (
-              <tr>
-                <td colSpan={5} style={{ padding: 12, textAlign: "center" }}>
-                  {state === "loading" ? "กำลังโหลด…" : "ไม่พบรายการ"}
-                </td>
-              </tr>
+    <Box>
+      {/* Header */}
+      <Stack
+        direction="row"
+        alignItems="center"
+        justifyContent="space-between"
+        sx={{ mb: 3 }}
+      >
+        <Typography variant="h5" fontWeight={700}>
+          รายการคำขอ (Admin)
+        </Typography>
+        <Button
+          variant="outlined"
+          startIcon={
+            state === "loading" ? (
+              <CircularProgress size={20} color="inherit" />
             ) : (
-              items.map((it) => (
-                <tr key={it.rid}>
-                  <td style={td}>{it.rid}</td>
-                  <td style={td}>
-                    <StatusPill value={it.status} />
-                  </td>
-                  <td style={td}>{it.contractorName || "-"}</td>
-                  <td style={td}>{formatTs(it.createdAt)}</td>
-                  <td style={td}>{formatTs(it.updatedAt)}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
+              <RefreshIcon />
+            )
+          }
+          onClick={load}
+          disabled={state === "loading"}
+        >
+          {state === "loading" ? "กำลังโหลด..." : "รีเฟรช"}
+        </Button>
+      </Stack>
+
+      {/* Error Alert */}
+      {state === "error" && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          เกิดข้อผิดพลาด: {errMsg}
+        </Alert>
+      )}
+
+      {/* Table */}
+      <Card variant="outlined" sx={{ borderRadius: 3 }}>
+        <CardContent sx={{ p: 0 }}>
+          <TableContainer component={Paper} elevation={0}>
+            <Table>
+              <TableHead>
+                <TableRow sx={{ bgcolor: "grey.50" }}>
+                  <TableCell sx={{ fontWeight: 700, color: "text.secondary" }}>
+                    RID
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 700, color: "text.secondary" }}>
+                    สถานะ
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 700, color: "text.secondary" }}>
+                    ชื่อผู้รับเหมา
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 700, color: "text.secondary" }}>
+                    สร้างเมื่อ
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 700, color: "text.secondary" }}>
+                    อัปเดตล่าสุด
+                  </TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {state === "loading" && items.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} align="center" sx={{ py: 6 }}>
+                      <CircularProgress size={40} />
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                        กำลังโหลด...
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ) : items.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} align="center" sx={{ py: 6 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        ไม่พบรายการ
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  items.map((it) => (
+                    <TableRow
+                      key={it.rid}
+                      hover
+                      sx={{ "&:last-child td": { border: 0 } }}
+                    >
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={600}>
+                          {it.rid}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <StatusChip value={it.status} />
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2">
+                          {it.contractorName || "-"}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" color="text.secondary">
+                          {formatTs(it.createdAt)}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" color="text.secondary">
+                          {formatTs(it.updatedAt)}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </CardContent>
+      </Card>
+    </Box>
   );
 }
 
-function StatusPill({ value }: { value?: string }) {
+// Status Chip Component
+function StatusChip({ value }: { value?: string }) {
   const v = (value || "pending").toLowerCase();
-  const bg =
-    v === "approved" ? "#dcfce7" : v === "rejected" ? "#fee2e2" : "#eef2ff";
-  const fg =
-    v === "approved" ? "#166534" : v === "rejected" ? "#991b1b" : "#3730a3";
+
+  let color: "success" | "error" | "warning" = "warning";
+  let label = "pending";
+
+  if (v === "approved") {
+    color = "success";
+    label = "approved";
+  } else if (v === "rejected") {
+    color = "error";
+    label = "rejected";
+  }
+
   return (
-    <span
-      style={{
-        display: "inline-block",
-        padding: "2px 8px",
-        borderRadius: 999,
-        background: bg,
-        color: fg,
-        fontSize: 12,
+    <Chip
+      label={label}
+      color={color}
+      size="small"
+      sx={{
+        fontWeight: 600,
+        fontSize: 11,
+        textTransform: "lowercase",
       }}
-    >
-      {v}
-    </span>
+    />
   );
 }
 
+// Format Timestamp
 function formatTs(ts: any) {
   if (!ts) return "-";
   // รองรับทั้งเลข ms และ Timestamp ของ Firestore
-  if (typeof ts === "number") return new Date(ts).toLocaleString();
+  if (typeof ts === "number") return new Date(ts).toLocaleString("th-TH");
   if (typeof ts?._seconds === "number")
-    return new Date(ts._seconds * 1000).toLocaleString();
+    return new Date(ts._seconds * 1000).toLocaleString("th-TH");
   return "-";
 }
-
-const th: React.CSSProperties = {
-  textAlign: "left",
-  padding: 8,
-  borderBottom: "1px solid #e5e7eb",
-  background: "#f8fafc",
-  position: "sticky",
-  top: 0,
-};
-const td: React.CSSProperties = {
-  padding: 8,
-  borderBottom: "1px solid #f1f5f9",
-};
