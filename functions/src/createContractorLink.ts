@@ -1,18 +1,17 @@
 // ======================================================================
 // File: functions/src/createContractorLink.ts
-// เวอร์ชัน: 26/10/2025 23:35 (Asia/Bangkok)
+// เวอร์ชัน: 30/10/2025 (Asia/Bangkok)
 // หน้าที่: Cloud Function (callable, v2) สำหรับ LP Admin เพื่อ "อนุมัติเบื้องต้น"
-//          - สร้าง RID รูปแบบ INT-YYYY-#### (Transaction + Counter)
+//          - สร้าง RID รูปแบบ INT-YYYYMMDD-XXXXXX (วันที่ + 6 ตัวอักษรสุ่ม)
 //          - อัปเดต internal_requests: linkedPermitRID + สถานะ 'LP รับทราบ (รอผู้รับเหมา)'
-//          - คืน URL จำลองสำหรับ Module 3 ตามสัญญา
+//          - คืน URL สำหรับผู้รับเหมา: <base-url>/form?rid=<rid>
 // เชื่อม auth ผ่าน "อะแดปเตอร์": Firebase Auth (Custom Claims) + Firestore (Admin SDK)
 // เปลี่ยนแปลงรอบนี้:
-//   • ปรับเป็น v2 API (onCall(request), HttpsError, CallableRequest)
-//   • ตัด import AuthData (v2 ไม่ export) และใช้ CallableRequest['auth'] แทน
-//   • อ่าน region จาก ENV: FUNCTIONS_REGION (fallback 'us-central1')
-//   • ค้นหาเอกสารด้วย documentId() == requestId ให้ชัดเจน
-// ผู้แก้ไข: เพื่อนคู่คิด
-// อัปเดตล่าสุด: 26/10/2025 23:35
+//   • เปลี่ยนรูปแบบ RID จาก INT-YYYY-#### เป็น INT-YYYYMMDD-XXXXXX
+//   • ใช้สุ่มตัวอักษรแทนการใช้ counter (ป้องกัน enumeration attacks)
+//   • URL ใหม่: /form?rid=<rid> (ไม่มี int parameter)
+// ผู้แก้ไข: Claude Code
+// อัปเดตล่าสุด: 30/10/2025
 // ======================================================================
 
 import * as admin from 'firebase-admin';
@@ -60,16 +59,22 @@ function assertLpRole(auth: CallableRequest<unknown>['auth']) {
   }
 }
 
-function pad4(n: number) {
-  return String(n).padStart(4, '0');
+function generateRandomAlphanumeric(length: number): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
 }
 
-function extractAppIdFromPath(internalRequestPath: string): string {
-  // คาดรูปแบบ: artifacts/{appId}/users/{uid}/internal_requests/{docId}
-  const m = internalRequestPath.match(/^artifacts\/([^/]+)\/users\/[^/]+\/internal_requests\/[^/]+$/);
-  if (m && m[1]) return m[1];
-  // สำรอง: ใช้ projectId
-  return process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'demo-app';
+function generateLinkedPermitRID(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const random = generateRandomAlphanumeric(6);
+  return `INT-${year}${month}${day}-${random}`;
 }
 
 export const createContractorLink = onCall(
@@ -110,13 +115,10 @@ export const createContractorLink = onCall(
       throw new HttpsError('not-found', 'ไม่พบเอกสารคำขอที่ระบุ');
     }
 
-    // 4) เตรียม counter RID
-    const appId = extractAppIdFromPath(reqRef.path);
-    const year = new Date().getFullYear();
-    const counterDocPath = `artifacts/${appId}/private/system/counters/rid_internal_${year}`;
-    const counterRef = db.doc(counterDocPath);
+    // 4) สร้าง RID แบบใหม่ (INT-YYYYMMDD-XXXXXX)
+    const rid = generateLinkedPermitRID();
 
-    // 5) Transaction: สร้าง RID + อัปเดตสถานะ
+    // 5) Transaction: ตรวจสถานะ + อัปเดต
     const result = await db.runTransaction(async (tx) => {
       const reqSnap = await tx.get(reqRef!);
       if (!reqSnap.exists) {
@@ -133,26 +135,7 @@ export const createContractorLink = onCall(
         );
       }
 
-      // อ่าน/เพิ่ม counter
-      const counterSnap = await tx.get(counterRef);
-      let seq = 0;
-      if (!counterSnap.exists) {
-        tx.set(
-          counterRef,
-          { seq: 0, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
-          { merge: true }
-        );
-      } else {
-        const d = counterSnap.data() as { seq?: number };
-        seq = Number(d?.seq || 0);
-      }
-      seq += 1;
-      tx.update(counterRef, { seq, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
-
-      // สร้าง RID
-      const rid = `INT-${year}-${pad4(seq)}`;
-
-      // อัปเดตคำขอ
+      // อัปเดตคำขอด้วย RID ใหม่และเปลี่ยนสถานะ
       tx.update(reqRef!, {
         linkedPermitRID: rid,
         status: 'LP รับทราบ (รอผู้รับเหมา)',
@@ -162,16 +145,14 @@ export const createContractorLink = onCall(
       return { rid };
     });
 
-    // 6) สร้างลิงก์สำหรับผู้รับเหมา (mock)
-    const BASE = process.env.CONTRACTOR_FORM_BASE_URL || 'https://your-domain/contractor/form';
-    const url = `${BASE}?ref=${encodeURIComponent(result.rid)}&int=${encodeURIComponent(reqRef.path)}`;
+    // 6) สร้างลิงก์สำหรับผู้รับเหมา
+    const BASE = process.env.CONTRACTOR_FORM_BASE_URL || 'https://your-domain.com';
+    const url = `${BASE}/form?rid=${encodeURIComponent(result.rid)}`;
 
     // 7) ส่งคืนให้ UI
     return {
-      ok: true,
       rid: result.rid,
       url,
-      internalRequestPath: reqRef.path,
     };
   }
 );

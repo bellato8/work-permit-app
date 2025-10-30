@@ -1,11 +1,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // ไฟล์: web/src/pages/RequestFormPage.tsx
 // ผู้เขียน (Written by): GPT-5 Thinking
-// อัปเดตล่าสุด (Last modified): 2025-08-21 (Asia/Bangkok)
+// อัปเดตล่าสุด (Last modified): 2025-10-30 (Asia/Bangkok)
 // แก้อะไร:
 // 1) เปลี่ยน ensureAuth -> authReady (รอ Anonymous login ให้ได้สิทธิ์ก่อนเขียน Firestore/Storage)
 // 2) ปรับลอจิกให้ "เขียน Firestore แค่ครั้งเดียว (create)" และใส่ images path ตั้งแต่รอบแรก
 //    เพื่อตรง Firestore Rules ที่อนุญาตเฉพาะ create (ไม่มี update/merge)
+// 3) เพิ่ม Pre-fill จาก internal_requests เมื่อ RID เริ่มต้นด้วย "INT-"
+//    - Query collection group internal_requests โดยใช้ linkedPermitRID
+//    - เติมข้อมูลผู้รับเหมา, สถานที่, วันที่อัตโนมัติ
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -22,7 +25,7 @@ import QRCode from "qrcode";
 // ⬇️ ใช้ authReady, db, storage จากศูนย์กลาง Firebase (ล็อกอินนิรนามอัตโนมัติ)
 import { db, storage, authReady } from "../lib/firebase";
 
-import { collection, doc, setDoc } from "firebase/firestore";
+import { collection, doc, setDoc, collectionGroup, query, where, getDocs, limit } from "firebase/firestore";
 import { ref, uploadBytes } from "firebase/storage";
 import { loadThaiLocations, listProvinces, listDistricts, listSubdistricts } from "../lib/locations";
 
@@ -137,6 +140,68 @@ export default function RequestFormPage() {
   const building = watch("building");
   const equipHas = watch("equipments.has");
   const from = watch("from"); const to = watch("to");
+
+  // ─────────────────────────────
+  // Pre-fill from internal_requests if RID starts with "INT-"
+  // ─────────────────────────────
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const rid = urlParams.get('rid');
+
+    if (!rid || !rid.startsWith('INT-')) return;
+
+    // Query internal_requests collection group
+    const fetchInternalRequest = async () => {
+      try {
+        const q = query(
+          collectionGroup(db, 'internal_requests'),
+          where('linkedPermitRID', '==', rid),
+          limit(1)
+        );
+
+        const snapshot = await getDocs(q);
+
+        if (snapshot.empty) {
+          console.warn('ไม่พบข้อมูลคำขอภายในสำหรับ RID:', rid);
+          return;
+        }
+
+        const internalReq = snapshot.docs[0].data();
+        console.log('Pre-filling form from internal request:', internalReq);
+
+        // Pre-fill form fields
+        if (internalReq.contractorName) setValue('company', internalReq.contractorName);
+        if (internalReq.contractorContactName) setValue('fullname', internalReq.contractorContactName);
+        if (internalReq.contractorContactPhone) setValue('phone', internalReq.contractorContactPhone);
+        if (internalReq.shopName) setValue('area', internalReq.shopName);
+        if (internalReq.floor) setValue('floor', internalReq.floor as FloorCode);
+        if (internalReq.workDetails) setValue('type', internalReq.workDetails);
+
+        // Pre-fill dates if available
+        if (internalReq.workStartDateTime) {
+          const startDate = typeof internalReq.workStartDateTime === 'string'
+            ? internalReq.workStartDateTime
+            : internalReq.workStartDateTime.toDate?.().toISOString().slice(0, 16);
+          if (startDate) setValue('from', startDate);
+        }
+
+        if (internalReq.workEndDateTime) {
+          const endDate = typeof internalReq.workEndDateTime === 'string'
+            ? internalReq.workEndDateTime
+            : internalReq.workEndDateTime.toDate?.().toISOString().slice(0, 16);
+          if (endDate) setValue('to', endDate);
+        }
+
+        // Show a message to the user
+        alert('ระบบได้เติมข้อมูลจากคำขอภายในให้อัตโนมัติแล้ว\nกรุณาตรวจสอบและเติมข้อมูลที่เหลือให้ครบถ้วน');
+
+      } catch (error) {
+        console.error('Error fetching internal request:', error);
+      }
+    };
+
+    fetchInternalRequest();
+  }, [setValue]);
 
   // ─────────────────────────────
   // ตัวอย่างตราประทับอัตโนมัติเมื่อเลือกไฟล์

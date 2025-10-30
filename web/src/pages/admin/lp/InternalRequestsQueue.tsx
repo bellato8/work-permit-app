@@ -23,6 +23,14 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  TextField,
+} from '@mui/material';
 
 type InternalStatus =
   | 'รอดำเนินการ'
@@ -110,6 +118,8 @@ const InternalRequestsQueue: React.FC = () => {
   const [qtext, setQtext] = useState('');
   const [statusFilter, setStatusFilter] = useState<InternalStatus | 'ทั้งหมด'>('ทั้งหมด');
   const [callingId, setCallingId] = useState<string | null>(null); // ป้องกันกดซ้ำขณะเรียก CF
+  const [resultModal, setResultModal] = useState<{ open: boolean; rid: string; url: string } | null>(null);
+  const [copyButtonText, setCopyButtonText] = useState('คัดลอก URL');
 
   useEffect(() => {
     setLoading(true);
@@ -199,7 +209,9 @@ const InternalRequestsQueue: React.FC = () => {
       });
       const rid = resp?.data?.rid || resp?.data?.RID || '-';
       const url = resp?.data?.url || resp?.data?.link || '-';
-      alert(`สร้างลิงก์เรียบร้อย\nRID: ${rid}\nURL: ${url}\n\nคัดลอก URL เพื่อส่งให้ผู้รับเหมาได้เลย`);
+
+      // เปิด Dialog แทน alert
+      setResultModal({ open: true, rid, url });
       // หมายเหตุ: ฝั่ง CF จะเป็นผู้อัปเดตสถานะและแนบ RID ในเอกสารอยู่แล้ว
     } catch (e: any) {
       console.error('[InternalRequestsQueue] createContractorLink error:', e);
@@ -208,6 +220,23 @@ const InternalRequestsQueue: React.FC = () => {
     } finally {
       setCallingId(null);
     }
+  };
+
+  const handleCopyUrl = async () => {
+    if (!resultModal?.url) return;
+    try {
+      await navigator.clipboard.writeText(resultModal.url);
+      setCopyButtonText('คัดลอกแล้ว!');
+      setTimeout(() => setCopyButtonText('คัดลอก URL'), 2000);
+    } catch (e) {
+      console.error('Copy failed:', e);
+      alert('ไม่สามารถคัดลอกได้ กรุณาลองใหม่');
+    }
+  };
+
+  const handleCloseModal = () => {
+    setResultModal(null);
+    setCopyButtonText('คัดลอก URL');
   };
 
   return (
@@ -319,6 +348,68 @@ const InternalRequestsQueue: React.FC = () => {
           </tbody>
         </table>
       </div>
+
+      {/* Success Dialog */}
+      <Dialog
+        open={resultModal?.open || false}
+        onClose={handleCloseModal}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle style={{ fontFamily: 'Sarabun, sans-serif', fontWeight: 700 }}>
+          สร้างลิงก์สำหรับผู้รับเหมาสำเร็จ
+        </DialogTitle>
+        <DialogContent style={{ fontFamily: 'Sarabun, sans-serif' }}>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', fontWeight: 700, marginBottom: 8 }}>
+              รหัสคำขอ (RID):
+            </label>
+            <div style={{
+              padding: '12px',
+              background: '#f9fafb',
+              borderRadius: 8,
+              fontFamily: 'monospace',
+              fontSize: 16,
+              fontWeight: 700,
+              color: '#2563eb'
+            }}>
+              {resultModal?.rid || '-'}
+            </div>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontWeight: 700, marginBottom: 8 }}>
+              URL สำหรับผู้รับเหมา:
+            </label>
+            <TextField
+              fullWidth
+              value={resultModal?.url || ''}
+              InputProps={{
+                readOnly: true,
+                style: { fontFamily: 'monospace', fontSize: 14 }
+              }}
+              variant="outlined"
+              multiline
+              rows={2}
+            />
+            <p style={{ fontSize: 12, color: '#6b7280', marginTop: 8 }}>
+              คัดลอก URL นี้และส่งให้ผู้รับเหมาเพื่อกรอกแบบฟอร์ม
+            </p>
+          </div>
+        </DialogContent>
+        <DialogActions style={{ padding: 16 }}>
+          <Button onClick={handleCloseModal} variant="outlined">
+            ปิด
+          </Button>
+          <Button
+            onClick={handleCopyUrl}
+            variant="contained"
+            color="primary"
+            style={{ fontFamily: 'Sarabun, sans-serif' }}
+          >
+            {copyButtonText}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </div>
   );
 };

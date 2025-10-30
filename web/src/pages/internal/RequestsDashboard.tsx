@@ -206,13 +206,15 @@ const RequestsDashboard: React.FC = () => {
   const title: React.CSSProperties = { fontSize: 20, fontWeight: 800, margin: 0 };
   const small: React.CSSProperties = { color: '#6b7280', fontSize: 12 };
 
-  // คัดลอกข้อความ (RID)
-  const copy = async (text: string) => {
+  // คัดลอกลิงก์สำหรับผู้รับเหมา
+  const copyContractorLink = async (rid: string) => {
     try {
-      await navigator.clipboard.writeText(text);
-      alert('คัดลอกแล้ว');
+      const baseUrl = window.location.origin;
+      const fullUrl = `${baseUrl}/form?rid=${encodeURIComponent(rid)}`;
+      await navigator.clipboard.writeText(fullUrl);
+      alert('คัดลอกลิงก์สำเร็จ! ส่งลิงก์นี้ให้ผู้รับเหมาเพื่อกรอกแบบฟอร์ม');
     } catch {
-      alert('คัดลอกไม่สำเร็จ');
+      alert('คัดลอกไม่สำเร็จ กรุณาลองใหม่');
     }
   };
 
@@ -296,9 +298,17 @@ const RequestsDashboard: React.FC = () => {
                   </td>
                   <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
                     {r.linkedPermitRID ? (
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <span>{r.linkedPermitRID}</span>
-                        <button style={btnGhost} onClick={() => copy(r.linkedPermitRID!)}>คัดลอก</button>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexDirection: 'column', alignItems: 'flex-start' }}>
+                        <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{r.linkedPermitRID}</span>
+                        {r.status === 'LP รับทราบ (รอผู้รับเหมา)' && (
+                          <button
+                            style={{ ...btnPrimary, fontSize: 12, padding: '6px 10px' }}
+                            onClick={() => copyContractorLink(r.linkedPermitRID!)}
+                            title="คัดลอกลิงก์เพื่อส่งให้ผู้รับเหมา"
+                          >
+                            คัดลอกลิงก์ให้ผู้รับเหมา
+                          </button>
+                        )}
                       </div>
                     ) : (
                       <span style={{ color: '#6b7280' }}>-</span>
