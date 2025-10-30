@@ -111,6 +111,28 @@ const InternalNewRequest = safeLazy(
   "Internal/NewRequest"
 );
 
+// ★★★ Department Admin Pages (Module 3) — เพิ่ม 30/10/2025 ★★★
+const DeptAdminLogin = safeLazy(
+  () => import("./pages/dept-admin/Login"),
+  "DeptAdmin/Login"
+);
+const DeptAdminLayout = safeLazy(
+  () => import("./pages/dept-admin/Layout"),
+  "DeptAdmin/Layout"
+);
+const DeptAdminDashboard = safeLazy(
+  () => import("./pages/dept-admin/Dashboard"),
+  "DeptAdmin/Dashboard"
+);
+const DeptAdminMembers = safeLazy(
+  () => import("./pages/dept-admin/Members"),
+  "DeptAdmin/Members"
+);
+const DeptAdminWorkRequests = safeLazy(
+  () => import("./pages/dept-admin/WorkRequests"),
+  "DeptAdmin/WorkRequests"
+);
+
 // ตั้งค่า Firebase จาก .env (Vite: import.meta.env.VITE_*)
 const getFirebaseConfig = () => ({
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY ?? "",
@@ -248,6 +270,22 @@ export default function App() {
               </RequireAuthInternal>
             }
           />
+
+          {/* -------- Department Admin Portal (Module 3) -------- */}
+          <Route path="/dept-admin" element={<Navigate to="/dept-admin/dashboard" replace />} />
+          <Route path="/dept-admin/login" element={<Page><DeptAdminLogin /></Page>} />
+          <Route
+            path="/dept-admin"
+            element={
+              <RequireAuthInternal>
+                <Page><DeptAdminLayout /></Page>
+              </RequireAuthInternal>
+            }
+          >
+            <Route path="dashboard" element={<DeptAdminDashboard />} />
+            <Route path="members" element={<DeptAdminMembers />} />
+            <Route path="work-requests" element={<DeptAdminWorkRequests />} />
+          </Route>
 
           {/* -------- Test routes (dev only ก็ใช้ได้จริง; ถ้าไฟล์หายจะขึ้นข้อความแทน) -------- */}
           <Route path="/__test__/checkbox-group" element={<Page><TestCheckboxGroup /></Page>} />

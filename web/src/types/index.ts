@@ -267,5 +267,52 @@ export interface InternalUser {
   email: string;
   fullName: string;
   department: string;
-  role?: "internal" | "lpAdmin"; // โดยทั่วไปจะเป็น "internal"
+  role?: "internal" | "lpAdmin" | "deptAdmin"; // เพิ่ม deptAdmin สำหรับผู้บริหารแผนก
+}
+
+// ========== Department Admin Types (เพิ่มใหม่ 30 ต.ค. 2025) ==========
+
+/**
+ * ผู้บริหารแผนก (Department Admin)
+ * จัดการคนในแผนกและดูงานที่แผนกส่งไป
+ */
+export interface DepartmentAdmin {
+  id: string;                     // Document ID
+  uid?: string;                   // Firebase UID (optional, จะมีหลังจากสร้างบัญชี)
+  email: string;
+  fullName: string;
+  department: string;             // แผนกที่รับผิดชอบ
+  role: "deptAdmin";
+  enabled: boolean;               // สถานะการใช้งาน
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string;             // UID ของผู้สร้าง
+}
+
+/**
+ * สมาชิกในแผนก (Department Member)
+ * คนในแผนกที่ผู้บริหารแผนกสามารถจัดการได้
+ */
+export interface DepartmentMember {
+  id: string;
+  uid?: string;                   // Firebase UID (optional)
+  email: string;
+  fullName: string;
+  department: string;
+  position?: string;              // ตำแหน่ง
+  phone?: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  addedBy?: string;               // UID ของผู้เพิ่ม
+}
+
+/**
+ * งานของแผนก (Department Work Request)
+ * งานที่สมาชิกในแผนกส่งไป - ให้ผู้บริหารแผนกเห็น
+ */
+export interface DepartmentWorkRequest extends InternalRequest {
+  submittedByName: string;        // ชื่อผู้ส่ง
+  submittedByEmail: string;       // อีเมลผู้ส่ง
+  department: string;             // แผนก
 }
