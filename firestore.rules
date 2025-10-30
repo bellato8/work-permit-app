@@ -164,6 +164,67 @@ service cloud.firestore {
     }
 
     // ====================================================================
+    // 🆕 Department Admin: เพิ่ม 30/10/2025
+    //    ผู้บริหารแผนก - จัดการคนในแผนกและดูงานของแผนก
+    // ====================================================================
+
+    // Department Admins collection
+    match /dept_admins/{deptAdminId} {
+      // Helper: ตรวจสอบว่าเป็น dept admin หรือไม่
+      function isDeptAdmin() {
+        return isAuthenticated() &&
+               exists(/databases/$(database)/documents/dept_admins/$(request.auth.token.email));
+      }
+
+      function isSelfDeptAdmin(deptAdminId) {
+        return isAuthenticated() &&
+               (request.auth.token.email == deptAdminId || request.auth.uid == deptAdminId);
+      }
+
+      // READ: อ่านได้ถ้าเป็นตัวเอง หรือเป็น superadmin
+      allow read: if isSelfDeptAdmin(deptAdminId) || isSuperAdmin();
+
+      // CREATE: สร้างได้ถ้าเป็น superadmin
+      allow create: if isSuperAdmin();
+
+      // UPDATE: แก้ไขได้ถ้าเป็น superadmin
+      allow update: if isSuperAdmin();
+
+      // DELETE: ลบได้ถ้าเป็น superadmin และไม่ใช่ตัวเอง
+      allow delete: if isSuperAdmin() && !isSelfDeptAdmin(deptAdminId);
+    }
+
+    // Department Members collection
+    match /dept_members/{memberId} {
+      // Helper: ตรวจสอบว่าเป็น dept admin ของแผนกนี้หรือไม่
+      function isDeptAdminOfMember() {
+        return isAuthenticated() &&
+               exists(/databases/$(database)/documents/dept_admins/$(request.auth.token.email)) &&
+               get(/databases/$(database)/documents/dept_admins/$(request.auth.token.email)).data.enabled == true &&
+               get(/databases/$(database)/documents/dept_admins/$(request.auth.token.email)).data.department == resource.data.department;
+      }
+
+      function canCreateMember() {
+        return isAuthenticated() &&
+               exists(/databases/$(database)/documents/dept_admins/$(request.auth.token.email)) &&
+               get(/databases/$(database)/documents/dept_admins/$(request.auth.token.email)).data.enabled == true &&
+               get(/databases/$(database)/documents/dept_admins/$(request.auth.token.email)).data.department == request.resource.data.department;
+      }
+
+      // READ: อ่านได้ถ้าเป็น dept admin ของแผนกเดียวกัน หรือ superadmin
+      allow read: if isDeptAdminOfMember() || isSuperAdmin();
+
+      // CREATE: สร้างได้ถ้าเป็น dept admin และสร้างในแผนกตัวเอง
+      allow create: if canCreateMember() || isSuperAdmin();
+
+      // UPDATE: แก้ไขได้ถ้าเป็น dept admin ของแผนกเดียวกัน
+      allow update: if isDeptAdminOfMember() || isSuperAdmin();
+
+      // DELETE: ลบได้ถ้าเป็น dept admin ของแผนกเดียวกัน
+      allow delete: if isDeptAdminOfMember() || isSuperAdmin();
+    }
+
+    // ====================================================================
     // ปิดทุก path อื่น (คงเดิม)
     // ====================================================================
     match /{document=**} {
