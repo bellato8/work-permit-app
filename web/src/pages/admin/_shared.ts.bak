@@ -2,6 +2,15 @@
 // File: web/src/pages/admin/_shared.ts
 // หน้าที่: ตัวช่วยหน้าแอดมิน (ดึงลิสต์, จัดรูป, เติมดีเทล, ส่งออก CSV)
 // เวอร์ชัน: 2025-09-07
+// Updated: 2025-10-26
+// ผู้แก้ไข: เพื่อนคู่คิด
+// รายการปรับปรุง 2025-10-26:
+//   - รองรับคำไทยของสถานะจากโมดูลใหม่ (Internal/LP) ใน normalizeStatus()
+//   - ให้ statusTH() อ้างอิง normalizeStatus() เสมอ เพื่อลดความคลาดเคลื่อน
+//   - ลดข้อความใน Console ระหว่างใช้งานจริง (โชว์เฉพาะโหมดพัฒนา)
+// หมายเหตุ:
+//   - ไม่ลบฟังก์ชันเดิม เพื่อไม่กระทบหน้าจอเก่า
+//   - เป้าหมายคือให้ /admin อ่านสถานะคำไทยใหม่ได้ โดยไม่แตะ Module 3
 // ============================================================
 
 export type PermitRow = {
@@ -45,22 +54,46 @@ export function fmtDate(v?: number | string) {
   });
 }
 
-/** ป้ายสถานะภาษาไทย */
-export const statusTH = (s?: string) => {
-  const v = (s || "").toLowerCase();
-  if (/(approved|อนุมัติ)/.test(v)) return "อนุมัติแล้ว";
-  if (/(rejected|ปฏิเสธ|ไม่อนุมัติ)/.test(v)) return "ถูกปฏิเสธ";
-  return "รออนุมัติ";
-};
-
-/** ทำให้สถานะเป็นชุดเดียวเสมอ */
+/** ทำให้สถานะเป็นชุดเดียวเสมอ
+ *  - รวมคำภาษาไทยของโมดูลใหม่:
+ *    "LP รับทราบ (รอผู้รับเหมา)" → pending
+ *    "รอ LP ตรวจสอบ"            → pending
+ *    "อนุมัติเข้าทำงาน"         → approved
+ *    "ไม่อนุมัติ"                → rejected
+ *  - คำอื่น ๆ ที่สื่อความ “รอ/อนุมัติ/ปฏิเสธ/ยกเลิก” ก็จะถูกจัดกลุ่มให้ตรง
+ */
 export function normalizeStatus(raw?: string): "pending" | "approved" | "rejected" {
   const v = squash(raw).toLowerCase();
-  if (/(pending|รอ)/.test(v)) return "pending";
-  if (/(reject|ปฏิเสธ|ไม่อนุมัติ)/.test(v)) return "rejected";
-  if (/(approve|อนุมัติ)/.test(v)) return "approved";
+
+  // กลุ่ม "รอ…" (pending)
+  if (
+    /(pending|รอ)/.test(v) ||
+    v.includes("lp รับทราบ") ||
+    v.includes("รอ lp ตรวจสอบ")
+  ) {
+    return "pending";
+  }
+
+  // กลุ่ม "ปฏิเสธ/ไม่อนุมัติ/ยกเลิก" (rejected)
+  if (/(reject|ปฏิเสธ|ไม่อนุมัติ|cancel|ยกเลิก)/.test(v)) {
+    return "rejected";
+  }
+
+  // กลุ่ม "อนุมัติ" (approved)
+  if (/(approve|อนุมัติ|อนุมัติเข้าทำงาน)/.test(v)) {
+    return "approved";
+  }
+
   return "pending";
 }
+
+/** ป้ายสถานะภาษาไทยแบบเดียวกันเสมอ (ยึดผลจาก normalizeStatus) */
+export const statusTH = (s?: string) => {
+  const n = normalizeStatus(s);
+  if (n === "approved") return "อนุมัติแล้ว";
+  if (n === "rejected") return "ถูกปฏิเสธ";
+  return "รออนุมัติ";
+};
 
 // ---------- อ่านค่าตั้งค่าจาก env/localStorage ----------
 export function getApproverKey(): string {
@@ -139,18 +172,20 @@ export async function fetchRequests(opts?: {
   const useUrl = proxyUrl || directUrl;
   if (!useUrl) return [];
 
+  const isDev = !!(import.meta as any)?.env?.DEV;
+
   try {
     if (proxyUrl) {
-      console.info("[admin/_shared] Using PROXY url:", proxyUrl);
+      if (isDev) console.info("[admin/_shared] Using PROXY url:", proxyUrl);
 
-      // 1) GET ตรง (เหมือนที่เพื่อนลองใน Console)
+      // 1) GET ตรง
       try {
         const res = await fetch(proxyUrl, { method: "GET", signal: opts?.signal });
         const text = await res.text();
         let json: any = {};
         try { json = JSON.parse(text); } catch {}
         const items = extractItemsLike(json);
-        console.info("[admin/_shared] GET items =", items.length);
+        if (isDev) console.info("[admin/_shared] GET items =", items.length);
         if (items.length) {
           const rows = items.map(toRow).filter(Boolean) as PermitRow[];
           rows.sort((a, b) =>
@@ -160,10 +195,10 @@ export async function fetchRequests(opts?: {
           return rows;
         }
       } catch {
-        if (import.meta.env.DEV) console.warn("[admin/_shared] GET failed, will try POST once…");
+        if (isDev) console.warn("[admin/_shared] GET failed, will try POST once…");
       }
 
-      // 2) ถ้า GET ว่าง → POST หนึ่งครั้ง (บางแบ็กเอนด์รองรับ)
+      // 2) ถ้า GET ว่าง → POST หนึ่งครั้ง
       const resPost = await fetch(proxyUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -173,7 +208,7 @@ export async function fetchRequests(opts?: {
       const jsonPost = await resPost.json().catch(() => ({}));
       if (!resPost.ok) throw new Error(JSON.stringify(jsonPost || { ok: false, error: `HTTP ${resPost.status}` }));
       const itemsPost = extractItemsLike(jsonPost);
-      console.info("[admin/_shared] POST items =", itemsPost.length);
+      if (isDev) console.info("[admin/_shared] POST items =", itemsPost.length);
 
       const rows = itemsPost.map(toRow).filter(Boolean) as PermitRow[];
       rows.sort((a, b) =>
@@ -184,7 +219,7 @@ export async function fetchRequests(opts?: {
     }
 
     // ---------- LEGACY (ไม่ผ่านพร็อกซี) ----------
-    console.warn("[admin/_shared] Using LEGACY list url (direct).");
+    if (isDev) console.warn("[admin/_shared] Using LEGACY list url (direct).");
     const key = getApproverKey();
     if (!directUrl || !key) return [];
 

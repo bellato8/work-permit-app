@@ -4,10 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "vite --mode development",
+    "build:dev": "vite build --mode development",
+    "build:prod": "tsc -b && vite build --mode production",
+    "build": "npm run build:prod",
     "preview": "vite preview",
-    "build:thloc": "node ./scripts/build-th-locations.mjs"
+    "build:thloc": "node ./scripts/build-th-locations.mjs",
+    "clean-build": "rm -rf dist node_modules/.vite && npm run build"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
