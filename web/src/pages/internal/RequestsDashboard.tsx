@@ -1,20 +1,9 @@
 // ======================================================================
 // File: web/src/pages/internal/RequestsDashboard.tsx
-// เวอร์ชัน: 27/10/2025 03:45 (Asia/Bangkok)
-// หน้าที่: แดชบอร์ด "คำขอของฉัน" แสดง internal_requests เฉพาะของผู้ใช้ที่ล็อกอิน
-//          ออกแบบใหม่ด้วย Material-UI พร้อมสีสันสดใส เรียบหรู modern
-// เปลี่ยนแปลงรอบนี้:
-//   • เปลี่ยนจากตาราง → MUI Card Grid layout
-//   • เพิ่ม AppBar/Toolbar พร้อม gradient สีสันสดใส
-//   • ใช้ MUI Chip สำหรับ status badges พร้อม icons
-//   • เพิ่ม icons สำหรับแต่ละข้อมูล (Location, Time, Contractor, etc.)
-//   • Empty state ที่สวยงาม
-//   • Loading skeleton animation
-//   • Responsive grid (xs=12, sm=6, md=4)
-//   • Color-coded cards ตามสถานะ
-//   • Floating Action Button สำหรับสร้างคำขอใหม่
-// ผู้แก้ไข: เพื่อนคู่คิด
-// อัปเดตล่าสุด: 27/10/2025 03:45
+// เวอร์ชัน: 31/10/2025 03:00 (Asia/Bangkok) - FINAL FIX
+// เปลี่ยนแปลงรอบนี้ (โดยเพื่อนคู่คิด):
+//   - ✨ [แก้ไข] ปรับการดึง APP_ID ให้ใช้ `import.meta.env.VITE_APP_ID` โดยตรง
+//     เพื่อให้ Path ที่ใช้ดึงข้อมูลถูกต้อง 100%
 // ======================================================================
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -105,10 +94,9 @@ interface InternalRequestDoc {
 const auth = getAuth();
 const db = getFirestore();
 
-const APP_ID =
-  (import.meta as any).env?.VITE_APP_ID ||
-  (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID ||
-  'demo-app';
+// ✨✨✨ [จุดที่แก้ไข] ✨✨✨
+const APP_ID = import.meta.env.VITE_APP_ID || 'default';
+
 
 function getStatusConfig(status: InternalStatus) {
   switch (status) {

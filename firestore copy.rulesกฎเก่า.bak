@@ -1,15 +1,25 @@
+// ======================================================================
+// File: firestore.rules
+// เวอร์ชัน: 2025-10-26 (Add internal_requests self-scope + locations read)
+// อิงไฟล์เดิมวันที่ 2025-10-14 (Task 6 - Granular Permissions)
+// จุดที่เพิ่ม:
+//   - อ่าน "สถานที่": artifacts/{appId}/public/data/locations และ /locations (สำรอง)
+//   - ให้เจ้าของ uid จัดการ internal_requests ของตัวเองได้
+// ======================================================================
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     // ====================================================================
-    // Helper Functions
+    // Helper Functions (เดิม) + เพิ่มเทียบ uid
     // ====================================================================
     function isAuthenticated() {
       return request.auth != null && request.auth.token.email != null;
     }
 
     function isSelf(email) {
+      // สมมุติว่า document id ใน /admins ใช้ email จริงตรงกับ token
       return isAuthenticated() && email == request.auth.token.email;
     }
 
@@ -23,6 +33,7 @@ service cloud.firestore {
     }
 
     function currentAdminRole() {
+      // เรียกใช้เฉพาะเมื่อ currentAdminExists() เป็นจริง
       return get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.role;
     }
 
@@ -36,7 +47,7 @@ service cloud.firestore {
     }
 
     // ====================================================================
-    // users: อ่านเฉพาะของตัวเอง
+    // users: อ่านเฉพาะของตัวเอง (คงเดิม)
     // ====================================================================
     match /users/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;
@@ -44,48 +55,66 @@ service cloud.firestore {
     }
 
     // ====================================================================
-    // admins: จัดการผู้ดูแลระบบ
+    // admins: (คงตามไฟล์เดิม)
     // ====================================================================
     match /admins/{email} {
+
+      // READ
       allow read: if isSelf(email) || isAdminOrAbove();
+
+      // CREATE
       allow create: if isAdminOrAbove();
+
+      // UPDATE
       allow update: if isAdminOrAbove()
         && (
+          // 1) แก้คนอื่น
           !isSelf(email)
+          // 2) หรือแก้ตัวเอง แต่ "role" ต้องไม่เปลี่ยน
           || (isSelf(email) && request.resource.data.role == resource.data.role)
         )
+        // 3) เพิ่มเติม: ถ้าเป็นแอดมินธรรมดา ห้ามตั้ง role เป็น superadmin
         && (isSuperAdmin() || request.resource.data.role != 'superadmin');
+
+      // DELETE
       allow delete: if isSuperAdmin() && !isSelf(email);
+
+      // subcollections (ถ้ามี)
       match /{document=**} {
         allow read, write: if isAdminOrAbove();
       }
     }
 
     // ====================================================================
-    // requests: เอกสารหลักของคำขอ
+    // requests: เอกสารหลักของคำขอ (คงเดิม)
     // ====================================================================
     match /requests/{rid} {
       allow create: if
         request.resource.data.requestId is string &&
         request.resource.data.requestId.matches('^[A-Za-z0-9._-]{6,64}$') &&
+
         request.resource.data.status == "pending" &&
+
         request.resource.data.requester is map &&
         request.resource.data.requester.name is string &&
         request.resource.data.requester.phone is string &&
+
         (
           !('createdAt' in request.resource.data) ||
           request.resource.data.createdAt is timestamp
         );
+
       allow read, update, delete: if false;
     }
 
+    // subcollections ใต้คำขอ (คงเดิมตามที่ตั้งไว้ก่อนหน้า)
     match /requests/{rid}/{anySub=**} {
-      allow create: if true;
+      allow create: if true; // จะค่อย ๆ เข้มขึ้นในขั้นต่อไป
       allow read, update, delete: if false;
     }
 
     // ====================================================================
-    // checkIns / checkOuts
+    // 🆕 checkIns / checkOuts: อิง pagePermissions.dailyWork.* (คงเดิม)
     // ====================================================================
     match /checkIns/{checkInId} {
       allow read: if isAuthenticated()
@@ -94,7 +123,7 @@ service cloud.firestore {
           get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.pagePermissions.dailyWork.canView == true
           || get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.pagePermissions.dailyWork.canViewOtherDays == true
         );
-      allow write: if false;
+      allow write: if false; // เขียนผ่าน Cloud Functions เท่านั้น
     }
 
     match /checkOuts/{checkOutId} {
@@ -104,83 +133,99 @@ service cloud.firestore {
           get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.pagePermissions.dailyWork.canView == true
           || get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.pagePermissions.dailyWork.canViewOtherDays == true
         );
+      allow write: if false; // เขียนผ่าน Cloud Functions เท่านั้น
+    }
+
+    // ====================================================================
+    // 🆕 เปิดอ่าน "สถานที่" ให้ฟอร์มดึงตัวเลือกได้
+    //    - ตำแหน่งหลัก: artifacts/{appId}/public/data/locations/{locId}
+    //    - ตำแหน่งสำรอง: /locations/{locId} (ที่เราใช้ทดสอบก่อน)
+    // ====================================================================
+    match /artifacts/{appId}/public/data/locations/{locId} {
+      allow read: if true;   // อ่านได้ในระบบ เพื่อโชว์รายการสถานที่/ชั้น
+      allow write: if false; // เขียนค่อยให้หน้า LP/Admin ดูแลในรอบต่อไป
+    }
+
+    match /locations/{locId} {
+      allow read: if true;   // สำรอง เพื่อไม่ให้ฟอร์มว่างตอนทดสอบ
       allow write: if false;
     }
 
     // ====================================================================
-    // "ผู้ใช้ภายใน" (Internal Users)
-    // ====================================================================
-    match /artifacts/{appId}/public/data/users_internal/{userDocId} {
-      allow list: if isAuthenticated();
-      allow read, write: if isAdminOrAbove();
-    }
-
-    // ====================================================================
-    // "สถานที่" (Locations)
-    // ====================================================================
-    match /artifacts/{appId}/public/data/locations/{locId} {
-      allow read: if true;
-      allow write: if isAdminOrAbove();
-    }
-
-    match /locations/{locId} {
-      allow read: if true;
-      allow write: if isAdminOrAbove();
-    }
-
-    // ====================================================================
-    // "คำขอภายในของผู้ใช้" (Internal Requests)
+    // 🆕 คำขอภายในของผู้ใช้:
+    //    artifacts/{appId}/users/{userId}/internal_requests/{reqId}
+    //    เจ้าของ uid จัดการของตัวเองได้ (สร้าง/อ่าน/แก้/ลบ)
     // ====================================================================
     match /artifacts/{appId}/users/{userId}/internal_requests/{reqId} {
-      // กฎสำหรับผู้ใช้ทั่วไป: จัดการได้เฉพาะข้อมูลของตัวเอง
-      allow create, read, update, delete: if isSelfUid(userId);
-    }
-    
-    // ✨✨✨ [กฎใหม่สำหรับ Admin] ✨✨✨
-    match /{path=**}/internal_requests/{reqId} {
-        // อนุญาตให้ Admin หรือสูงกว่า สามารถ "list" (ค้นหาแบบ collectionGroup) ได้
-        allow list: if isAdminOrAbove();
+      allow create: if isSelfUid(userId);
+      allow read:   if isSelfUid(userId);
+      allow update: if isSelfUid(userId);
+      allow delete: if isSelfUid(userId);
     }
 
     // ====================================================================
-    // Department Admin
+    // 🆕 Department Admin: เพิ่ม 30/10/2025
+    //    ผู้บริหารแผนก - จัดการคนในแผนกและดูงานของแผนก
     // ====================================================================
+
+    // Department Admins collection
     match /dept_admins/{deptAdminId} {
+      // Helper: ตรวจสอบว่าเป็น dept admin หรือไม่
       function isDeptAdmin() {
         return isAuthenticated() &&
                exists(/databases/$(database)/documents/dept_admins/$(request.auth.token.email));
       }
+
       function isSelfDeptAdmin(deptAdminId) {
         return isAuthenticated() &&
                (request.auth.token.email == deptAdminId || request.auth.uid == deptAdminId);
       }
+
+      // READ: อ่านได้ถ้าเป็นตัวเอง หรือเป็น superadmin
       allow read: if isSelfDeptAdmin(deptAdminId) || isSuperAdmin();
+
+      // CREATE: สร้างได้ถ้าเป็น superadmin
       allow create: if isSuperAdmin();
+
+      // UPDATE: แก้ไขได้ถ้าเป็น superadmin
       allow update: if isSuperAdmin();
+
+      // DELETE: ลบได้ถ้าเป็น superadmin และไม่ใช่ตัวเอง
       allow delete: if isSuperAdmin() && !isSelfDeptAdmin(deptAdminId);
     }
 
+    // Department Members collection
     match /dept_members/{memberId} {
+      // Helper: ตรวจสอบว่าเป็น dept admin ของแผนกนี้หรือไม่
       function isDeptAdminOfMember() {
         return isAuthenticated() &&
                exists(/databases/$(database)/documents/dept_admins/$(request.auth.token.email)) &&
                get(/databases/$(database)/documents/dept_admins/$(request.auth.token.email)).data.enabled == true &&
                get(/databases/$(database)/documents/dept_admins/$(request.auth.token.email)).data.department == resource.data.department;
       }
+
       function canCreateMember() {
         return isAuthenticated() &&
                exists(/databases/$(database)/documents/dept_admins/$(request.auth.token.email)) &&
                get(/databases/$(database)/documents/dept_admins/$(request.auth.token.email)).data.enabled == true &&
                get(/databases/$(database)/documents/dept_admins/$(request.auth.token.email)).data.department == request.resource.data.department;
       }
+
+      // READ: อ่านได้ถ้าเป็น dept admin ของแผนกเดียวกัน หรือ superadmin
       allow read: if isDeptAdminOfMember() || isSuperAdmin();
+
+      // CREATE: สร้างได้ถ้าเป็น dept admin และสร้างในแผนกตัวเอง
       allow create: if canCreateMember() || isSuperAdmin();
+
+      // UPDATE: แก้ไขได้ถ้าเป็น dept admin ของแผนกเดียวกัน
       allow update: if isDeptAdminOfMember() || isSuperAdmin();
+
+      // DELETE: ลบได้ถ้าเป็น dept admin ของแผนกเดียวกัน
       allow delete: if isDeptAdminOfMember() || isSuperAdmin();
     }
 
     // ====================================================================
-    // ปิดทุก path อื่น (ต้องอยู่ล่างสุดเสมอ)
+    // ปิดทุก path อื่น (คงเดิม)
     // ====================================================================
     match /{document=**} {
       allow read, write: if false;
