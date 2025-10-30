@@ -167,3 +167,46 @@ export type GetStatusApiResponse = GetStatusApiSuccess | GetStatusApiError;
 export function msToDate(ms: number | null): Date | null {
   return typeof ms === "number" && Number.isFinite(ms) ? new Date(ms) : null;
 }
+
+/* ======================= Department Admin Types ======================== */
+
+export interface DepartmentAdmin {
+  id: string;
+  email: string;
+  fullName: string;
+  departmentId: string;
+  enabled?: boolean;
+  createdAt?: any;
+  updatedAt?: any;
+  [k: string]: any;
+}
+
+export interface DepartmentMember {
+  id: string;
+  departmentId: string;
+  fullName: string;
+  email: string;
+  enabled: boolean;
+  createdAt?: any;
+  updatedAt?: any;
+  [k: string]: any;
+}
+
+export interface InternalRequest {
+  id: string;
+  requesterEmail: string;
+  locationId: string;
+  shopName: string;
+  floor: string;
+  workDetails: string;
+  workStartDateTime: any;
+  workEndDateTime: any;
+  contractorName: string;
+  contractorContactPhone: string;
+  contractorContactName?: string;
+  status: string;
+  linkedPermitRID?: string | null;
+  createdAt?: any;
+  updatedAt?: any;
+  [k: string]: any;
+}

@@ -298,7 +298,7 @@ const RequestsDashboard: React.FC = () => {
                   </td>
                   <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
                     {r.linkedPermitRID ? (
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexDirection: 'column', alignItems: 'flex-start' }}>
+                      <div style={{ display: 'flex', gap: 8, flexDirection: 'column', alignItems: 'flex-start' }}>
                         <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{r.linkedPermitRID}</span>
                         {r.status === 'LP รับทราบ (รอผู้รับเหมา)' && (
                           <button
