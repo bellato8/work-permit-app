@@ -1,15 +1,13 @@
 // ======================================================================
 // File: web/src/pages/admin/lp/InternalRequestsQueue.tsx
-// เวอร์ชัน: 28/10/2025 02:00 (Asia/Bangkok)
+// เวอร์ชัน: 27/10/2025 00:25 (Asia/Bangkok)
 // หน้าที่: คิวคำขอทั้งหมด (Internal Requests) สำหรับ LP Admin — แสดง/ค้นหา/กรอง/อนุมัติเบื้องต้น/ปฏิเสธ
 // เชื่อมบริการ: Firestore (collectionGroup onSnapshot), Cloud Functions (httpsCallable)
 // เปลี่ยนแปลงรอบนี้:
-//   • แปลง inline CSS เป็น MUI components ทั้งหมด
-//   • ใช้ MUI Table, TextField, Select, Button, Chip
-//   • เพิ่ม Card layout และ responsive design
-//   • เพิ่ม loading skeleton และ empty state
+//   • [แก้บั๊ก] inputCss.border สตริงแตก ('1px solid '#d1d5db' → '1px solid #d1d5db')
+//   • [คงเดิม] เรียก Cloud Functions ด้วย region จาก ENV: VITE_FUNCTIONS_REGION (fallback 'us-central1')
 // ผู้แก้ไข: เพื่อนคู่คิด
-// อัปเดตล่าสุด: 28/10/2025 02:00
+// อัปเดตล่าสุด: 27/10/2025 00:25
 // ======================================================================
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -25,38 +23,14 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-
-// MUI Components
 import {
-  Box,
-  Card,
-  Typography,
-  TextField,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
   Button,
-  Table,
-  TableHead,
-  TableBody,
-  TableRow,
-  TableCell,
-  Chip,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  Alert,
-  CircularProgress,
-  Stack,
-  Paper,
-  InputAdornment,
+  TextField,
 } from '@mui/material';
-import {
-  Search as SearchIcon,
-  CheckCircle as ApproveIcon,
-  Cancel as RejectIcon,
-  AccessTime as TimeIcon,
-  Person as PersonIcon,
-  Business as BusinessIcon,
-} from '@mui/icons-material';
 
 type InternalStatus =
   | 'รอดำเนินการ'
@@ -87,24 +61,28 @@ const db = getFirestore();
 
 // === เลือก region ของ Cloud Functions จาก ENV ===
 const region = (import.meta as any).env?.VITE_FUNCTIONS_REGION || 'us-central1';
+// ใช้ชื่อตัวแปร functionsClient เพื่อไม่ชนกับชื่อ import
 const functionsClient = getFunctions(undefined, region);
 
-function StatusChip({ status }: { status: InternalStatus }) {
-  let color: 'default' | 'warning' | 'info' | 'secondary' | 'success' | 'error' = 'default';
-  if (status === 'รอดำเนินการ') color = 'warning';
-  if (status === 'LP รับทราบ (รอผู้รับเหมา)') color = 'info';
-  if (status === 'รอ LP ตรวจสอบ') color = 'secondary';
-  if (status === 'อนุมัติเข้าทำงาน') color = 'success';
-  if (status === 'ไม่อนุมัติ') color = 'error';
+// ใช้สำหรับ tooltip/หมายเหตุ
+const small: React.CSSProperties = { color: '#6b7280', fontSize: 12 };
 
-  return (
-    <Chip
-      label={status}
-      color={color}
-      size="small"
-      sx={{ fontWeight: 600, fontSize: 11 }}
-    />
-  );
+function StatusBadge({ status }: { status: InternalStatus }) {
+  const style: React.CSSProperties = {
+    display: 'inline-block',
+    padding: '2px 8px',
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 700,
+  };
+  let bg = '#e5e7eb';
+  let color = '#374151';
+  if (status === 'รอดำเนินการ') { bg = '#fff7ed'; color = '#9a3412'; }
+  if (status === 'LP รับทราบ (รอผู้รับเหมา)') { bg = '#dbeafe'; color = '#1e3a8a'; }
+  if (status === 'รอ LP ตรวจสอบ') { bg = '#fef3c7'; color = '#92400e'; }
+  if (status === 'อนุมัติเข้าทำงาน') { bg = '#dcfce7'; color = '#166534'; }
+  if (status === 'ไม่อนุมัติ') { bg = '#fee2e2'; color = '#991b1b'; }
+  return <span style={{ ...style, background: bg, color }}>{status}</span>;
 }
 
 function fmt(input?: string | Timestamp) {
@@ -124,6 +102,14 @@ function fmt(input?: string | Timestamp) {
   }
 }
 
+const box: React.CSSProperties = { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8 };
+// ✅ แก้สตริง border ให้ถูกต้อง
+const inputCss: React.CSSProperties = { padding: 8, borderRadius: 6, border: '1px solid #d1d5db', width: '100%' };
+const btn: React.CSSProperties = { padding: '8px 12px', borderRadius: 6, border: '1px solid #d1d5db', cursor: 'pointer' };
+const btnPrimary: React.CSSProperties = { ...btn, background: '#2563eb', color: 'white', border: 'none' };
+const btnWarn: React.CSSProperties = { ...btn, background: '#ef4444', color: 'white', border: 'none' };
+const title: React.CSSProperties = { fontSize: 20, fontWeight: 800, margin: 0 };
+
 const InternalRequestsQueue: React.FC = () => {
   const [rows, setRows] = useState<InternalRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -131,11 +117,14 @@ const InternalRequestsQueue: React.FC = () => {
 
   const [qtext, setQtext] = useState('');
   const [statusFilter, setStatusFilter] = useState<InternalStatus | 'ทั้งหมด'>('ทั้งหมด');
-  const [callingId, setCallingId] = useState<string | null>(null);
+  const [callingId, setCallingId] = useState<string | null>(null); // ป้องกันกดซ้ำขณะเรียก CF
+  const [resultModal, setResultModal] = useState<{ open: boolean; rid: string; url: string } | null>(null);
+  const [copyButtonText, setCopyButtonText] = useState('คัดลอก URL');
 
   useEffect(() => {
     setLoading(true);
     const cg = collectionGroup(db, 'internal_requests');
+    // เรียงล่าสุดก่อน
     const qy = query(cg, orderBy('createdAt', 'desc'));
     const unsub = onSnapshot(
       qy,
@@ -145,7 +134,7 @@ const InternalRequestsQueue: React.FC = () => {
           const data = d.data() as any;
           list.push({
             id: d.id,
-            docPath: d.ref.path,
+            docPath: d.ref.path, // เก็บ path เต็ม
             requesterEmail: data.requesterEmail || '',
             locationId: data.locationId || '',
             shopName: data.shopName || '',
@@ -208,17 +197,22 @@ const InternalRequestsQueue: React.FC = () => {
   };
 
   const onApprovePreliminary = async (row: InternalRequestRow) => {
-    if (callingId) return;
+    if (callingId) return; // กันกดซ้ำ
     setCallingId(row.id);
     try {
+      // เรียก Cloud Function (v2) พร้อม region จาก ENV
       const createLink = httpsCallable(functionsClient, 'createContractorLink');
+      // ส่งทั้ง requestId และ path เพื่อให้ฝั่ง CF ใช้อย่างใดอย่างหนึ่ง
       const resp: any = await createLink({
         requestId: row.id,
         internalRequestPath: row.docPath,
       });
       const rid = resp?.data?.rid || resp?.data?.RID || '-';
       const url = resp?.data?.url || resp?.data?.link || '-';
-      alert(`สร้างลิงก์เรียบร้อย\nRID: ${rid}\nURL: ${url}\n\nคัดลอก URL เพื่อส่งให้ผู้รับเหมาได้เลย`);
+
+      // เปิด Dialog แทน alert
+      setResultModal({ open: true, rid, url });
+      // หมายเหตุ: ฝั่ง CF จะเป็นผู้อัปเดตสถานะและแนบ RID ในเอกสารอยู่แล้ว
     } catch (e: any) {
       console.error('[InternalRequestsQueue] createContractorLink error:', e);
       const msg = e?.message || 'เรียก Cloud Function ไม่สำเร็จ กรุณาตรวจสอบการ deploy/region';
@@ -228,182 +222,195 @@ const InternalRequestsQueue: React.FC = () => {
     }
   };
 
-  return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h4" fontWeight={700} gutterBottom>
-          คิวคำขอ (Internal Requests)
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          แสดงคำขอทั้งหมดที่ส่งมาจากพนักงานภายใน · Functions region: <strong>{region}</strong>
-        </Typography>
-      </Box>
+  const handleCopyUrl = async () => {
+    if (!resultModal?.url) return;
+    try {
+      await navigator.clipboard.writeText(resultModal.url);
+      setCopyButtonText('คัดลอกแล้ว!');
+      setTimeout(() => setCopyButtonText('คัดลอก URL'), 2000);
+    } catch (e) {
+      console.error('Copy failed:', e);
+      alert('ไม่สามารถคัดลอกได้ กรุณาลองใหม่');
+    }
+  };
 
-      {/* Filters */}
-      <Card elevation={2} sx={{ p: 2, mb: 3 }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-          <TextField
-            fullWidth
-            size="small"
+  const handleCloseModal = () => {
+    setResultModal(null);
+    setCopyButtonText('คัดลอก URL');
+  };
+
+  return (
+    <div style={{ padding: 16, fontFamily: 'Sarabun, sans-serif' }}>
+      <div style={{ marginBottom: 12 }}>
+        <h1 style={title}>คิวคำขอ (Internal Requests)</h1>
+        <div style={small}>แสดงคำขอทั้งหมดที่ส่งมาจากพนักงานภายใน · Functions region: <b>{region}</b></div>
+      </div>
+
+      {/* แถบเครื่องมือ */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 260px' }}>
+          <input
             placeholder="ค้นหา: ผู้ขอ/ร้าน/ชั้น/รายละเอียด/ผู้รับเหมา/เบอร์/RID..."
             value={qtext}
             onChange={(e) => setQtext(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon color="action" />
-                </InputAdornment>
-              ),
-            }}
+            style={inputCss}
           />
-          <FormControl size="small" sx={{ minWidth: 260 }}>
-            <InputLabel>สถานะ</InputLabel>
-            <Select
-              value={statusFilter}
-              label="สถานะ"
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-            >
-              <MenuItem value="ทั้งหมด">ทั้งหมด</MenuItem>
-              <MenuItem value="รอดำเนินการ">รอดำเนินการ</MenuItem>
-              <MenuItem value="LP รับทราบ (รอผู้รับเหมา)">LP รับทราบ (รอผู้รับเหมา)</MenuItem>
-              <MenuItem value="รอ LP ตรวจสอบ">รอ LP ตรวจสอบ</MenuItem>
-              <MenuItem value="อนุมัติเข้าทำงาน">อนุมัติเข้าทำงาน</MenuItem>
-              <MenuItem value="ไม่อนุมัติ">ไม่อนุมัติ</MenuItem>
-            </Select>
-          </FormControl>
-        </Stack>
-      </Card>
+        </div>
+        <div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as any)}
+            style={{ ...inputCss, width: 260, background: '#fff' }}
+          >
+            <option value="ทั้งหมด">ทั้งหมด</option>
+            <option value="รอดำเนินการ">รอดำเนินการ</option>
+            <option value="LP รับทราบ (รอผู้รับเหมา)">LP รับทราบ (รอผู้รับเหมา)</option>
+            <option value="รอ LP ตรวจสอบ">รอ LP ตรวจสอบ</option>
+            <option value="อนุมัติเข้าทำงาน">อนุมัติเข้าทำงาน</option>
+            <option value="ไม่อนุมัติ">ไม่อนุมัติ</option>
+          </select>
+        </div>
+      </div>
 
-      {/* Table */}
-      <Paper elevation={3} sx={{ overflow: 'auto', borderRadius: 2 }}>
-        <Table sx={{ minWidth: 1200 }}>
-          <TableHead>
-            <TableRow sx={{ bgcolor: '#f3f4f6' }}>
-              <TableCell sx={{ fontWeight: 700 }}>ผู้ขอ</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>พื้นที่/ชั้น</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>ช่วงเวลา</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>ผู้รับเหมา</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>สถานะ</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>RID</TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 240 }}>การจัดการ</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
+      {/* ตาราง */}
+      <div style={{ ...box, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+          <thead style={{ background: '#f9fafb' }}>
+            <tr>
+              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>ผู้ขอ</th>
+              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>พื้นที่/ชั้น</th>
+              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>ช่วงเวลา</th>
+              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>ผู้รับเหมา</th>
+              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>สถานะ</th>
+              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>RID</th>
+              <th style={{ textAlign: 'left', padding: 10, borderBottom: '1px solid #e5e7eb' }}>การจัดการ</th>
+            </tr>
+          </thead>
+          <tbody>
             {loading ? (
-              <TableRow>
-                <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
-                  <CircularProgress size={40} />
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-                    กำลังโหลด...
-                  </Typography>
-                </TableCell>
-              </TableRow>
+              <tr><td style={{ padding: 12 }} colSpan={7}>กำลังโหลด...</td></tr>
             ) : err ? (
-              <TableRow>
-                <TableCell colSpan={7} sx={{ py: 4 }}>
-                  <Alert severity="error">{err}</Alert>
-                </TableCell>
-              </TableRow>
+              <tr><td style={{ padding: 12, color: '#dc2626' }} colSpan={7}>{err}</td></tr>
             ) : filtered.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    ไม่พบข้อมูล
-                  </Typography>
-                </TableCell>
-              </TableRow>
+              <tr><td style={{ padding: 12, color: '#6b7280' }} colSpan={7}>ไม่พบข้อมูล</td></tr>
             ) : (
               filtered.map((r) => {
                 const approving = callingId === r.id;
                 return (
-                  <TableRow key={r.docPath} sx={{ '&:hover': { bgcolor: '#f9fafb' } }}>
-                    <TableCell>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <PersonIcon fontSize="small" color="action" />
-                        <Box>
-                          <Typography variant="body2" fontWeight={600}>
-                            {r.requesterEmail || '-'}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {fmt(r.createdAt)}
-                          </Typography>
-                        </Box>
-                      </Stack>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" fontWeight={600}>
-                        {r.shopName || '-'}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        ชั้น: {r.floor || '-'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 0.5 }}>
-                        <TimeIcon fontSize="small" color="action" />
-                        <Typography variant="caption">
-                          {fmt(r.workStartDateTime)} → {fmt(r.workEndDateTime)}
-                        </Typography>
-                      </Stack>
-                      <Typography variant="caption" color="text.secondary">
-                        {r.workDetails || '-'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <BusinessIcon fontSize="small" color="action" />
-                        <Box>
-                          <Typography variant="body2">{r.contractorName || '-'}</Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {r.contractorContactPhone || '-'}
-                          </Typography>
-                        </Box>
-                      </Stack>
-                    </TableCell>
-                    <TableCell>
-                      <StatusChip status={r.status} />
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" fontWeight={600}>
-                        {r.linkedPermitRID || <span style={{ color: '#9ca3af' }}>-</span>}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Stack direction="column" spacing={1}>
-                        <Button
-                          variant="contained"
-                          size="small"
-                          startIcon={approving ? <CircularProgress size={16} color="inherit" /> : <ApproveIcon />}
+                  <tr key={r.docPath}>
+                    <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
+                      <div style={{ fontWeight: 700 }}>{r.requesterEmail || '-'}</div>
+                      <div style={small}>{fmt(r.createdAt)}</div>
+                    </td>
+                    <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
+                      <div style={{ fontWeight: 700 }}>{r.shopName || '-'}</div>
+                      <div style={small}>ชั้น: {r.floor || '-'}</div>
+                    </td>
+                    <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
+                      <div>{fmt(r.workStartDateTime)} → {fmt(r.workEndDateTime)}</div>
+                      <div style={small}>{r.workDetails || '-'}</div>
+                    </td>
+                    <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
+                      <div>{r.contractorName || '-'}</div>
+                      <div style={small}>{r.contractorContactPhone || '-'}</div>
+                    </td>
+                    <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
+                      <StatusBadge status={r.status} />
+                    </td>
+                    <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
+                      {r.linkedPermitRID || <span style={{ color: '#6b7280' }}>-</span>}
+                    </td>
+                    <td style={{ padding: 10, borderBottom: '1px solid #f3f4f6' }}>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <button
+                          style={btnPrimary}
                           disabled={approving || r.status !== 'รอดำเนินการ'}
                           onClick={() => onApprovePreliminary(r)}
-                          sx={{
-                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                            '&:disabled': { background: '#e5e7eb', color: '#9ca3af' },
-                          }}
+                          title="อนุมัติเบื้องต้น (สร้างลิงก์ผู้รับเหมา)"
                         >
-                          {approving ? 'กำลังสร้าง...' : 'อนุมัติเบื้องต้น'}
-                        </Button>
-                        <Button
-                          variant="contained"
-                          size="small"
-                          color="error"
-                          startIcon={<RejectIcon />}
+                          {approving ? 'กำลังสร้างลิงก์...' : 'อนุมัติเบื้องต้น'}
+                        </button>
+                        <button
+                          style={btnWarn}
                           disabled={r.status === 'อนุมัติเข้าทำงาน' || r.status === 'ไม่อนุมัติ'}
                           onClick={() => onReject(r)}
+                          title="ปฏิเสธ"
                         >
                           ปฏิเสธ
-                        </Button>
-                      </Stack>
-                    </TableCell>
-                  </TableRow>
+                        </button>
+                        {/* อนาคต: ปุ่ม “ดูรายละเอียด” เปิดโมดอลได้หากต้องการ */}
+                      </div>
+                    </td>
+                  </tr>
                 );
               })
             )}
-          </TableBody>
-        </Table>
-      </Paper>
-    </Box>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Success Dialog */}
+      <Dialog
+        open={resultModal?.open || false}
+        onClose={handleCloseModal}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle style={{ fontFamily: 'Sarabun, sans-serif', fontWeight: 700 }}>
+          สร้างลิงก์สำหรับผู้รับเหมาสำเร็จ
+        </DialogTitle>
+        <DialogContent style={{ fontFamily: 'Sarabun, sans-serif' }}>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', fontWeight: 700, marginBottom: 8 }}>
+              รหัสคำขอ (RID):
+            </label>
+            <div style={{
+              padding: '12px',
+              background: '#f9fafb',
+              borderRadius: 8,
+              fontFamily: 'monospace',
+              fontSize: 16,
+              fontWeight: 700,
+              color: '#2563eb'
+            }}>
+              {resultModal?.rid || '-'}
+            </div>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontWeight: 700, marginBottom: 8 }}>
+              URL สำหรับผู้รับเหมา:
+            </label>
+            <TextField
+              fullWidth
+              value={resultModal?.url || ''}
+              InputProps={{
+                readOnly: true,
+                style: { fontFamily: 'monospace', fontSize: 14 }
+              }}
+              variant="outlined"
+              multiline
+              rows={2}
+            />
+            <p style={{ fontSize: 12, color: '#6b7280', marginTop: 8 }}>
+              คัดลอก URL นี้และส่งให้ผู้รับเหมาเพื่อกรอกแบบฟอร์ม
+            </p>
+          </div>
+        </DialogContent>
+        <DialogActions style={{ padding: 16 }}>
+          <Button onClick={handleCloseModal} variant="outlined">
+            ปิด
+          </Button>
+          <Button
+            onClick={handleCopyUrl}
+            variant="contained"
+            color="primary"
+            style={{ fontFamily: 'Sarabun, sans-serif' }}
+          >
+            {copyButtonText}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </div>
   );
 };
 
