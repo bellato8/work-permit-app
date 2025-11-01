@@ -447,7 +447,7 @@ export default function Login() {
                 elevation={0}
                 sx={{
                   borderRadius: 5,
-                  overflow: "visible",
+                  overflow: "hidden",
                   backdropFilter: "blur(40px)",
                   background: "rgba(255, 255, 255, 0.95)",
                   border: "1px solid rgba(255, 255, 255, 0.3)",
