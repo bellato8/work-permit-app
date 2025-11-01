@@ -1,17 +1,18 @@
 // ======================================================================
 // File: web/src/pages/Login.tsx
-// เวอร์ชัน: 29/10/2025 15:30 (Asia/Bangkok)
+// เวอร์ชัน: 01/11/2025 (Asia/Bangkok)
 // หน้าที่: หน้าเข้าสู่ระบบสำหรับผู้ดูแล (Admin Portal)
-//          ออกแบบใหม่ด้วย Material-UI พร้อมสีสันสดใส เรียบหรู ดูแพง
+//          ออกแบบใหม่สุดอลังการ - สวยงาม เรียบหรู ดูแพง สีสันสดใส
 // เปลี่ยนแปลงรอบนี้:
-//   • เปลี่ยนจาก custom CSS → ใช้ MUI components ทั้งหมด
-//   • เพิ่ม gradient background สีสันสดใส (indigo-teal)
-//   • ใช้ MUI TextField, Button, Card, Alert, Dialog พร้อม icons
-//   • เพิ่ม animation fade-in, pulse, และ hover effects
-//   • Modern design พร้อม glass morphism และ responsive layout
-//   • คงฟังก์ชัน: ensureAdminGate, smart redirect, forgot password
-// ผู้แก้ไข: เพื่อนคู่คิด
-// อัปเดตล่าสุด: 29/10/2025 15:30
+//   • ใช้ Vibrant Gradient (Purple, Pink, Blue, Orange)
+//   • เพิ่ม Floating Elements Animation
+//   • Glass Morphism Card พร้อม Backdrop Blur
+//   • Premium Typography & Smooth Transitions
+//   • 3D Hover Effects & Glowing Buttons
+//   • Animated Background Gradient
+//   • Modern Icons & Visual Elements
+// ผู้แก้ไข: เพื่อนรัก
+// อัปเดตล่าสุด: 01/11/2025
 // ======================================================================
 
 import React, { useState, useEffect } from "react";
@@ -241,24 +242,63 @@ export default function Login() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "linear-gradient(135deg, #667eea 0%, #14b8a6 100%)",
+        background: "linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)",
         fontFamily: "Sarabun, sans-serif",
         position: "relative",
         overflow: "hidden",
+        // Animated gradient background
+        animation: "gradientShift 15s ease infinite",
+        "@keyframes gradientShift": {
+          "0%": {
+            background: "linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)",
+          },
+          "25%": {
+            background: "linear-gradient(135deg, #f093fb 0%, #4facfe 50%, #00f2fe 100%)",
+          },
+          "50%": {
+            background: "linear-gradient(135deg, #43e97b 0%, #38f9d7 50%, #667eea 100%)",
+          },
+          "75%": {
+            background: "linear-gradient(135deg, #fa709a 0%, #fee140 50%, #f093fb 100%)",
+          },
+          "100%": {
+            background: "linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)",
+          },
+        },
+        // Floating elements
         "&::before": {
           content: '""',
           position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background:
-            "radial-gradient(circle at 30% 40%, rgba(99, 102, 241, 0.4), transparent 50%), radial-gradient(circle at 70% 60%, rgba(20, 184, 166, 0.4), transparent 50%)",
-          animation: "pulse 10s ease-in-out infinite",
+          top: "-10%",
+          left: "-10%",
+          width: "40%",
+          height: "40%",
+          background: "radial-gradient(circle, rgba(255,255,255,0.3), transparent 70%)",
+          borderRadius: "50%",
+          animation: "float1 20s ease-in-out infinite",
+          filter: "blur(60px)",
         },
-        "@keyframes pulse": {
-          "0%, 100%": { opacity: 1 },
-          "50%": { opacity: 0.6 },
+        "&::after": {
+          content: '""',
+          position: "absolute",
+          bottom: "-10%",
+          right: "-10%",
+          width: "50%",
+          height: "50%",
+          background: "radial-gradient(circle, rgba(255,255,255,0.2), transparent 70%)",
+          borderRadius: "50%",
+          animation: "float2 25s ease-in-out infinite",
+          filter: "blur(80px)",
+        },
+        "@keyframes float1": {
+          "0%, 100%": { transform: "translate(0, 0) scale(1)" },
+          "33%": { transform: "translate(30%, 20%) scale(1.1)" },
+          "66%": { transform: "translate(-20%, 30%) scale(0.9)" },
+        },
+        "@keyframes float2": {
+          "0%, 100%": { transform: "translate(0, 0) scale(1)" },
+          "33%": { transform: "translate(-30%, -20%) scale(1.2)" },
+          "66%": { transform: "translate(20%, -30%) scale(0.8)" },
         },
       }}
     >
@@ -283,69 +323,221 @@ export default function Login() {
                 color: "white",
                 textAlign: "center",
                 p: 4,
+                position: "relative",
+                zIndex: 1,
               }}
             >
-              <AdminIcon sx={{ fontSize: 120, mb: 3, opacity: 0.95 }} />
-              <Typography
-                variant="h3"
-                fontWeight={900}
-                gutterBottom
+              {/* Animated Icon */}
+              <Box
                 sx={{
-                  textShadow: "2px 2px 8px rgba(0,0,0,0.2)",
-                  letterSpacing: "0.5px",
-                }}
-              >
-                Work Permit System
-              </Typography>
-              <Typography
-                variant="h6"
-                sx={{
-                  opacity: 0.95,
-                  textShadow: "1px 1px 4px rgba(0,0,0,0.2)",
-                  maxWidth: "400px",
-                  lineHeight: 1.8,
-                }}
-              >
-                ระบบขออนุญาตทำงาน
-                <br />
-                จัดการคำขอ, อนุมัติ, ติดตามสถานะ
-                <br />
-                ทั้งหมดในที่เดียว
-              </Typography>
-            </Box>
-
-            {/* ซีกขวา: Login Form */}
-            <Box sx={{ flex: 1, width: "100%", maxWidth: { xs: "100%", md: 480 } }}>
-              <Card
-                elevation={24}
-                sx={{
-                  borderRadius: 4,
-                  overflow: "hidden",
-                  backdropFilter: "blur(20px)",
-                  background: "rgba(255, 255, 255, 0.98)",
-                  transition: "transform 0.3s ease, box-shadow 0.3s ease",
-                  "&:hover": {
-                    transform: "translateY(-4px)",
-                    boxShadow: "0 24px 48px rgba(0,0,0,0.3)",
+                  position: "relative",
+                  mb: 4,
+                  animation: "bounce 3s ease-in-out infinite",
+                  "@keyframes bounce": {
+                    "0%, 100%": { transform: "translateY(0)" },
+                    "50%": { transform: "translateY(-20px)" },
                   },
                 }}
               >
-                {/* Header with gradient */}
+                <AdminIcon
+                  sx={{
+                    fontSize: 140,
+                    filter: "drop-shadow(0 10px 30px rgba(0,0,0,0.3))",
+                    animation: "rotate 20s linear infinite",
+                    "@keyframes rotate": {
+                      "0%": { transform: "rotate(0deg)" },
+                      "100%": { transform: "rotate(360deg)" },
+                    },
+                  }}
+                />
+                {/* Glow effect */}
                 <Box
                   sx={{
-                    background: "linear-gradient(135deg, #667eea 0%, #14b8a6 100%)",
-                    py: 4,
+                    position: "absolute",
+                    top: "50%",
+                    left: "50%",
+                    transform: "translate(-50%, -50%)",
+                    width: "200px",
+                    height: "200px",
+                    background: "radial-gradient(circle, rgba(255,255,255,0.4), transparent 70%)",
+                    borderRadius: "50%",
+                    filter: "blur(40px)",
+                    animation: "pulse 3s ease-in-out infinite",
+                    "@keyframes pulse": {
+                      "0%, 100%": { opacity: 0.5, scale: 1 },
+                      "50%": { opacity: 1, scale: 1.2 },
+                    },
+                  }}
+                />
+              </Box>
+
+              {/* Title with gradient text */}
+              <Typography
+                variant="h2"
+                fontWeight={900}
+                gutterBottom
+                sx={{
+                  background: "linear-gradient(135deg, #fff 0%, #f0f0f0 100%)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  backgroundClip: "text",
+                  textShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                  letterSpacing: "1px",
+                  mb: 3,
+                }}
+              >
+                Work Permit
+              </Typography>
+
+              {/* Subtitle with better spacing */}
+              <Typography
+                variant="h5"
+                sx={{
+                  opacity: 0.95,
+                  textShadow: "0 2px 8px rgba(0,0,0,0.2)",
+                  maxWidth: "450px",
+                  lineHeight: 2,
+                  fontWeight: 300,
+                  letterSpacing: "0.5px",
+                }}
+              >
+                ระบบขออนุญาตทำงานที่ทันสมัย
+                <br />
+                <Box
+                  component="span"
+                  sx={{
+                    display: "inline-block",
+                    mt: 2,
                     px: 3,
-                    textAlign: "center",
-                    color: "white",
+                    py: 1,
+                    background: "rgba(255,255,255,0.2)",
+                    borderRadius: "50px",
+                    backdropFilter: "blur(10px)",
+                    fontSize: "0.9em",
                   }}
                 >
-                  <AdminIcon sx={{ fontSize: 64, mb: 1 }} />
-                  <Typography variant="h4" fontWeight={800} gutterBottom>
+                  จัดการ • อนุมัติ • ติดตาม
+                </Box>
+              </Typography>
+
+              {/* Decorative dots */}
+              <Stack direction="row" spacing={1.5} sx={{ mt: 4 }}>
+                {[...Array(3)].map((_, i) => (
+                  <Box
+                    key={i}
+                    sx={{
+                      width: 12,
+                      height: 12,
+                      borderRadius: "50%",
+                      bgcolor: "rgba(255,255,255,0.6)",
+                      animation: `dotPulse 2s ease-in-out infinite ${i * 0.3}s`,
+                      "@keyframes dotPulse": {
+                        "0%, 100%": { opacity: 0.3, scale: 0.8 },
+                        "50%": { opacity: 1, scale: 1.2 },
+                      },
+                    }}
+                  />
+                ))}
+              </Stack>
+            </Box>
+
+            {/* ซีกขวา: Login Form */}
+            <Box sx={{ flex: 1, width: "100%", maxWidth: { xs: "100%", md: 500 }, position: "relative", zIndex: 1 }}>
+              <Card
+                elevation={0}
+                sx={{
+                  borderRadius: 5,
+                  overflow: "visible",
+                  backdropFilter: "blur(40px)",
+                  background: "rgba(255, 255, 255, 0.95)",
+                  border: "1px solid rgba(255, 255, 255, 0.3)",
+                  boxShadow: "0 20px 60px rgba(0,0,0,0.3), 0 0 100px rgba(255,255,255,0.1)",
+                  transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
+                  position: "relative",
+                  "&::before": {
+                    content: '""',
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: "200px",
+                    background: "linear-gradient(135deg, rgba(102,126,234,0.1) 0%, rgba(240,147,251,0.1) 100%)",
+                    borderRadius: "20px 20px 0 0",
+                    zIndex: -1,
+                  },
+                  "&:hover": {
+                    transform: "translateY(-8px) scale(1.02)",
+                    boxShadow: "0 30px 80px rgba(0,0,0,0.4), 0 0 120px rgba(255,255,255,0.2)",
+                  },
+                }}
+              >
+                {/* Header with vibrant gradient */}
+                <Box
+                  sx={{
+                    background: "linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)",
+                    py: 5,
+                    px: 4,
+                    textAlign: "center",
+                    color: "white",
+                    position: "relative",
+                    overflow: "hidden",
+                    "&::before": {
+                      content: '""',
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      background: "linear-gradient(135deg, transparent 0%, rgba(255,255,255,0.1) 50%, transparent 100%)",
+                      animation: "shimmer 3s ease-in-out infinite",
+                      "@keyframes shimmer": {
+                        "0%": { transform: "translateX(-100%)" },
+                        "100%": { transform: "translateX(100%)" },
+                      },
+                    },
+                  }}
+                >
+                  {/* Icon with glow */}
+                  <Box
+                    sx={{
+                      position: "relative",
+                      display: "inline-block",
+                      mb: 2,
+                    }}
+                  >
+                    <AdminIcon
+                      sx={{
+                        fontSize: 72,
+                        filter: "drop-shadow(0 8px 24px rgba(255,255,255,0.4))",
+                        animation: "iconFloat 4s ease-in-out infinite",
+                        "@keyframes iconFloat": {
+                          "0%, 100%": { transform: "translateY(0) rotate(0deg)" },
+                          "50%": { transform: "translateY(-10px) rotate(5deg)" },
+                        },
+                      }}
+                    />
+                  </Box>
+
+                  <Typography
+                    variant="h4"
+                    fontWeight={900}
+                    gutterBottom
+                    sx={{
+                      textShadow: "0 4px 12px rgba(0,0,0,0.2)",
+                      letterSpacing: "1px",
+                    }}
+                  >
                     เข้าสู่ระบบผู้ดูแล
                   </Typography>
-                  <Typography variant="body2" sx={{ opacity: 0.95 }}>
-                    ใช้บัญชีจาก Firebase Authentication
+                  <Typography
+                    variant="body1"
+                    sx={{
+                      opacity: 0.95,
+                      fontWeight: 300,
+                      letterSpacing: "0.5px",
+                    }}
+                  >
+                    ยินดีต้อนรับสู่ระบบจัดการ
                   </Typography>
                 </Box>
 
@@ -374,11 +566,38 @@ export default function Login() {
                       disabled={loading}
                       required
                       autoComplete="username"
-                      sx={{ mb: 2.5 }}
+                      sx={{
+                        mb: 3,
+                        "& .MuiOutlinedInput-root": {
+                          borderRadius: 3,
+                          backgroundColor: "rgba(102, 126, 234, 0.02)",
+                          transition: "all 0.3s ease",
+                          "& fieldset": {
+                            borderColor: "rgba(102, 126, 234, 0.2)",
+                            borderWidth: 2,
+                          },
+                          "&:hover fieldset": {
+                            borderColor: "rgba(102, 126, 234, 0.4)",
+                          },
+                          "&.Mui-focused": {
+                            backgroundColor: "rgba(102, 126, 234, 0.05)",
+                            boxShadow: "0 4px 12px rgba(102, 126, 234, 0.15)",
+                            "& fieldset": {
+                              borderColor: "#667eea",
+                            },
+                          },
+                        },
+                        "& .MuiInputLabel-root": {
+                          fontWeight: 600,
+                          "&.Mui-focused": {
+                            color: "#667eea",
+                          },
+                        },
+                      }}
                       InputProps={{
                         startAdornment: (
                           <InputAdornment position="start">
-                            <EmailIcon color="primary" />
+                            <EmailIcon sx={{ color: "#667eea" }} />
                           </InputAdornment>
                         ),
                       }}
@@ -395,11 +614,38 @@ export default function Login() {
                       disabled={loading}
                       required
                       autoComplete="current-password"
-                      sx={{ mb: 2.5 }}
+                      sx={{
+                        mb: 3,
+                        "& .MuiOutlinedInput-root": {
+                          borderRadius: 3,
+                          backgroundColor: "rgba(102, 126, 234, 0.02)",
+                          transition: "all 0.3s ease",
+                          "& fieldset": {
+                            borderColor: "rgba(102, 126, 234, 0.2)",
+                            borderWidth: 2,
+                          },
+                          "&:hover fieldset": {
+                            borderColor: "rgba(102, 126, 234, 0.4)",
+                          },
+                          "&.Mui-focused": {
+                            backgroundColor: "rgba(102, 126, 234, 0.05)",
+                            boxShadow: "0 4px 12px rgba(102, 126, 234, 0.15)",
+                            "& fieldset": {
+                              borderColor: "#667eea",
+                            },
+                          },
+                        },
+                        "& .MuiInputLabel-root": {
+                          fontWeight: 600,
+                          "&.Mui-focused": {
+                            color: "#667eea",
+                          },
+                        },
+                      }}
                       InputProps={{
                         startAdornment: (
                           <InputAdornment position="start">
-                            <LockIcon color="primary" />
+                            <LockIcon sx={{ color: "#667eea" }} />
                           </InputAdornment>
                         ),
                         endAdornment: (
@@ -408,6 +654,12 @@ export default function Login() {
                               onClick={() => setShowPw(!showPw)}
                               edge="end"
                               disabled={loading}
+                              sx={{
+                                color: "#667eea",
+                                "&:hover": {
+                                  background: "rgba(102, 126, 234, 0.1)",
+                                },
+                              }}
                             >
                               {showPw ? <VisibilityOff /> : <Visibility />}
                             </IconButton>
@@ -425,25 +677,45 @@ export default function Login() {
                       disabled={loading}
                       startIcon={<LoginIcon />}
                       sx={{
-                        py: 1.5,
-                        fontWeight: 700,
-                        fontSize: 16,
-                        background:
-                          "linear-gradient(135deg, #667eea 0%, #14b8a6 100%)",
-                        "&:hover": {
-                          background:
-                            "linear-gradient(135deg, #5568d3 0%, #0f9d8a 100%)",
-                          transform: "translateY(-2px)",
-                          boxShadow: 6,
+                        py: 2,
+                        fontWeight: 800,
+                        fontSize: 17,
+                        background: "linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)",
+                        borderRadius: 3,
+                        boxShadow: "0 8px 24px rgba(102, 126, 234, 0.4)",
+                        position: "relative",
+                        overflow: "hidden",
+                        textTransform: "none",
+                        letterSpacing: "0.5px",
+                        "&::before": {
+                          content: '""',
+                          position: "absolute",
+                          top: 0,
+                          left: "-100%",
+                          width: "100%",
+                          height: "100%",
+                          background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)",
+                          transition: "left 0.5s",
                         },
-                        transition: "all 0.3s ease",
+                        "&:hover": {
+                          background: "linear-gradient(135deg, #5568d3 0%, #6339a2 50%, #e07df0 100%)",
+                          transform: "translateY(-3px) scale(1.02)",
+                          boxShadow: "0 12px 32px rgba(102, 126, 234, 0.6), 0 0 40px rgba(240, 147, 251, 0.4)",
+                          "&::before": {
+                            left: "100%",
+                          },
+                        },
+                        "&:active": {
+                          transform: "translateY(-1px) scale(0.98)",
+                        },
+                        transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
                       }}
                     >
                       {loading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
                     </Button>
 
                     <Divider sx={{ my: 3 }}>
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography variant="body2" color="text.secondary" fontWeight={600}>
                         หรือ
                       </Typography>
                     </Divider>
@@ -457,16 +729,22 @@ export default function Login() {
                       disabled={loading}
                       startIcon={<GoogleIcon />}
                       sx={{
-                        py: 1.5,
-                        fontWeight: 600,
+                        py: 1.8,
+                        fontWeight: 700,
                         fontSize: 16,
+                        borderRadius: 3,
+                        borderWidth: 2,
                         borderColor: "#667eea",
                         color: "#667eea",
+                        textTransform: "none",
+                        letterSpacing: "0.5px",
+                        background: "linear-gradient(135deg, rgba(102,126,234,0.05) 0%, rgba(240,147,251,0.05) 100%)",
                         "&:hover": {
-                          borderColor: "#5568d3",
-                          bgcolor: "rgba(102, 126, 234, 0.05)",
+                          borderWidth: 2,
+                          borderColor: "#764ba2",
+                          background: "linear-gradient(135deg, rgba(102,126,234,0.1) 0%, rgba(240,147,251,0.1) 100%)",
                           transform: "translateY(-2px)",
-                          boxShadow: 2,
+                          boxShadow: "0 8px 20px rgba(102, 126, 234, 0.3)",
                         },
                         transition: "all 0.3s ease",
                       }}
@@ -475,31 +753,59 @@ export default function Login() {
                     </Button>
 
                     {/* Help Text */}
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      sx={{ mt: 3, textAlign: "center" }}
+                    <Box
+                      sx={{
+                        mt: 3,
+                        p: 2.5,
+                        background: "linear-gradient(135deg, rgba(102,126,234,0.05) 0%, rgba(240,147,251,0.05) 100%)",
+                        borderRadius: 3,
+                        border: "1px solid rgba(102,126,234,0.1)",
+                        textAlign: "center",
+                      }}
                     >
-                      ต้องการสิทธิ์ผู้ดูแล?{" "}
-                      <Link href={requestAccessHref} sx={{ fontWeight: 600 }}>
-                        ขอสิทธิ์เข้าใช้งาน
-                      </Link>{" "}
-                      หรือติดต่อผู้ดูแลระบบ
-                    </Typography>
+                      <Typography variant="body2" color="text.secondary" fontWeight={500}>
+                        ต้องการสิทธิ์ผู้ดูแล?{" "}
+                        <Link
+                          href={requestAccessHref}
+                          sx={{
+                            fontWeight: 700,
+                            color: "#667eea",
+                            textDecoration: "none",
+                            borderBottom: "2px solid #667eea",
+                            transition: "all 0.3s ease",
+                            "&:hover": {
+                              color: "#764ba2",
+                              borderBottomColor: "#764ba2",
+                            },
+                          }}
+                        >
+                          ขอสิทธิ์เข้าใช้งาน
+                        </Link>
+                      </Typography>
+                    </Box>
                   </form>
 
                   {/* Footer Links */}
                   <Stack
                     direction="row"
-                    spacing={2}
+                    spacing={1}
                     justifyContent="center"
-                    sx={{ mt: 4, pt: 3, borderTop: "1px solid #e5e7eb" }}
+                    sx={{ mt: 4, pt: 3, borderTop: "2px solid rgba(102,126,234,0.1)" }}
                   >
                     <Button
                       size="small"
                       startIcon={<HomeIcon />}
                       onClick={() => navigate("/")}
-                      sx={{ color: "text.secondary" }}
+                      sx={{
+                        color: "text.secondary",
+                        fontWeight: 600,
+                        borderRadius: 2,
+                        px: 2,
+                        "&:hover": {
+                          color: "#667eea",
+                          background: "rgba(102,126,234,0.1)",
+                        },
+                      }}
                     >
                       หน้าแรก
                     </Button>
@@ -507,7 +813,16 @@ export default function Login() {
                       size="small"
                       startIcon={<StatusIcon />}
                       onClick={() => navigate("/status")}
-                      sx={{ color: "text.secondary" }}
+                      sx={{
+                        color: "text.secondary",
+                        fontWeight: 600,
+                        borderRadius: 2,
+                        px: 2,
+                        "&:hover": {
+                          color: "#667eea",
+                          background: "rgba(102,126,234,0.1)",
+                        },
+                      }}
                     >
                       ตรวจสอบสถานะ
                     </Button>
@@ -516,24 +831,52 @@ export default function Login() {
                       startIcon={<KeyIcon />}
                       onClick={handleForgotPassword}
                       disabled={loading}
-                      sx={{ color: "text.secondary" }}
+                      sx={{
+                        color: "text.secondary",
+                        fontWeight: 600,
+                        borderRadius: 2,
+                        px: 2,
+                        "&:hover": {
+                          color: "#667eea",
+                          background: "rgba(102,126,234,0.1)",
+                        },
+                      }}
                     >
                       ลืมรหัสผ่าน?
                     </Button>
                   </Stack>
 
-                  {/* Version */}
-                  <Typography
-                    variant="caption"
-                    color="text.disabled"
+                  {/* Version Badge */}
+                  <Box
                     sx={{
-                      display: "block",
-                      textAlign: "center",
-                      mt: 2,
+                      display: "flex",
+                      justifyContent: "center",
+                      mt: 3,
                     }}
                   >
-                    v1.0.0
-                  </Typography>
+                    <Box
+                      sx={{
+                        px: 2.5,
+                        py: 0.8,
+                        background: "linear-gradient(135deg, rgba(102,126,234,0.1) 0%, rgba(240,147,251,0.1) 100%)",
+                        borderRadius: 50,
+                        border: "1px solid rgba(102,126,234,0.2)",
+                      }}
+                    >
+                      <Typography
+                        variant="caption"
+                        fontWeight={700}
+                        sx={{
+                          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                          WebkitBackgroundClip: "text",
+                          WebkitTextFillColor: "transparent",
+                          backgroundClip: "text",
+                        }}
+                      >
+                        v1.0.0
+                      </Typography>
+                    </Box>
+                  </Box>
                 </CardContent>
               </Card>
             </Box>
@@ -547,35 +890,77 @@ export default function Login() {
         onClose={() => setShowConfirmModal(false)}
         maxWidth="sm"
         fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 4,
+            backdropFilter: "blur(20px)",
+            background: "rgba(255, 255, 255, 0.98)",
+            boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+          },
+        }}
       >
-        <DialogTitle sx={{ fontWeight: 700, bgcolor: "grey.50" }}>
+        <DialogTitle
+          sx={{
+            fontWeight: 800,
+            fontSize: 22,
+            background: "linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)",
+            color: "white",
+            textAlign: "center",
+            py: 3,
+          }}
+        >
           ยืนยันการส่งอีเมล
         </DialogTitle>
-        <DialogContent sx={{ pt: 3 }}>
-          <Typography variant="body2" color="text.secondary" gutterBottom>
+        <DialogContent sx={{ pt: 4, pb: 2, px: 4 }}>
+          <Typography variant="body1" color="text.secondary" gutterBottom sx={{ mb: 2 }}>
             ระบบจะส่งอีเมลสำหรับตั้งรหัสผ่านใหม่ไปที่:
           </Typography>
-          <Typography variant="body1" fontWeight={700} sx={{ mt: 1 }}>
-            {email}
-          </Typography>
+          <Box
+            sx={{
+              p: 2,
+              background: "linear-gradient(135deg, rgba(102,126,234,0.1) 0%, rgba(240,147,251,0.1) 100%)",
+              borderRadius: 2,
+              border: "2px solid rgba(102,126,234,0.2)",
+            }}
+          >
+            <Typography variant="h6" fontWeight={700} color="primary" sx={{ textAlign: "center" }}>
+              {email}
+            </Typography>
+          </Box>
         </DialogContent>
-        <DialogActions sx={{ p: 3, gap: 1 }}>
+        <DialogActions sx={{ p: 3, gap: 2 }}>
           <Button
             onClick={() => setShowConfirmModal(false)}
             variant="outlined"
-            color="inherit"
+            size="large"
+            sx={{
+              borderWidth: 2,
+              borderColor: "grey.300",
+              color: "grey.700",
+              fontWeight: 600,
+              "&:hover": {
+                borderWidth: 2,
+                borderColor: "grey.400",
+                background: "grey.50",
+              },
+            }}
           >
             ยกเลิก
           </Button>
           <Button
             onClick={confirmSendResetEmail}
             variant="contained"
+            size="large"
             sx={{
-              background: "linear-gradient(135deg, #667eea 0%, #14b8a6 100%)",
+              fontWeight: 700,
+              background: "linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)",
+              boxShadow: "0 4px 12px rgba(102, 126, 234, 0.4)",
               "&:hover": {
-                background:
-                  "linear-gradient(135deg, #5568d3 0%, #0f9d8a 100%)",
+                background: "linear-gradient(135deg, #5568d3 0%, #6339a2 50%, #e07df0 100%)",
+                boxShadow: "0 6px 16px rgba(102, 126, 234, 0.6)",
+                transform: "translateY(-2px)",
               },
+              transition: "all 0.3s ease",
             }}
           >
             ยืนยันและส่งอีเมล
