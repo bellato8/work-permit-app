@@ -442,7 +442,7 @@ export default function Login() {
             </Box>
 
             {/* ซีกขวา: Login Form */}
-            <Box sx={{ flex: 1, width: "100%", maxWidth: { xs: "100%", md: 500 }, position: "relative", zIndex: 1 }}>
+            <Box sx={{ flex: 1, width: "100%", maxWidth: { xs: "100%", md: 420 }, position: "relative", zIndex: 1 }}>
               <Card
                 elevation={0}
                 sx={{
@@ -460,7 +460,7 @@ export default function Login() {
                     top: 0,
                     left: 0,
                     right: 0,
-                    height: "200px",
+                    height: "180px",
                     background: "linear-gradient(135deg, rgba(102,126,234,0.1) 0%, rgba(240,147,251,0.1) 100%)",
                     borderRadius: "20px 20px 0 0",
                     zIndex: -1,
@@ -475,8 +475,8 @@ export default function Login() {
                 <Box
                   sx={{
                     background: "linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)",
-                    py: 5,
-                    px: 4,
+                    py: 3.5,
+                    px: 3,
                     textAlign: "center",
                     color: "white",
                     position: "relative",
@@ -502,12 +502,12 @@ export default function Login() {
                     sx={{
                       position: "relative",
                       display: "inline-block",
-                      mb: 2,
+                      mb: 1.5,
                     }}
                   >
                     <AdminIcon
                       sx={{
-                        fontSize: 72,
+                        fontSize: 60,
                         filter: "drop-shadow(0 8px 24px rgba(255,255,255,0.4))",
                         animation: "iconFloat 4s ease-in-out infinite",
                         "@keyframes iconFloat": {
@@ -519,7 +519,7 @@ export default function Login() {
                   </Box>
 
                   <Typography
-                    variant="h4"
+                    variant="h5"
                     fontWeight={900}
                     gutterBottom
                     sx={{
@@ -530,7 +530,7 @@ export default function Login() {
                     เข้าสู่ระบบผู้ดูแล
                   </Typography>
                   <Typography
-                    variant="body1"
+                    variant="body2"
                     sx={{
                       opacity: 0.95,
                       fontWeight: 300,
@@ -541,7 +541,7 @@ export default function Login() {
                   </Typography>
                 </Box>
 
-                <CardContent sx={{ p: 4 }}>
+                <CardContent sx={{ p: 3 }}>
                   {/* Error Alert */}
                   {msg && (
                     <Alert
@@ -567,7 +567,7 @@ export default function Login() {
                       required
                       autoComplete="username"
                       sx={{
-                        mb: 3,
+                        mb: 2.5,
                         "& .MuiOutlinedInput-root": {
                           borderRadius: 3,
                           backgroundColor: "rgba(102, 126, 234, 0.02)",
@@ -615,7 +615,7 @@ export default function Login() {
                       required
                       autoComplete="current-password"
                       sx={{
-                        mb: 3,
+                        mb: 2.5,
                         "& .MuiOutlinedInput-root": {
                           borderRadius: 3,
                           backgroundColor: "rgba(102, 126, 234, 0.02)",
@@ -677,7 +677,7 @@ export default function Login() {
                       disabled={loading}
                       startIcon={<LoginIcon />}
                       sx={{
-                        py: 2,
+                        py: 1.5,
                         fontWeight: 800,
                         fontSize: 17,
                         background: "linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)",
@@ -714,7 +714,7 @@ export default function Login() {
                       {loading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
                     </Button>
 
-                    <Divider sx={{ my: 3 }}>
+                    <Divider sx={{ my: 2.5 }}>
                       <Typography variant="body2" color="text.secondary" fontWeight={600}>
                         หรือ
                       </Typography>
@@ -729,7 +729,7 @@ export default function Login() {
                       disabled={loading}
                       startIcon={<GoogleIcon />}
                       sx={{
-                        py: 1.8,
+                        py: 1.5,
                         fontWeight: 700,
                         fontSize: 16,
                         borderRadius: 3,
@@ -755,8 +755,8 @@ export default function Login() {
                     {/* Help Text */}
                     <Box
                       sx={{
-                        mt: 3,
-                        p: 2.5,
+                        mt: 2.5,
+                        p: 2,
                         background: "linear-gradient(135deg, rgba(102,126,234,0.05) 0%, rgba(240,147,251,0.05) 100%)",
                         borderRadius: 3,
                         border: "1px solid rgba(102,126,234,0.1)",
@@ -790,7 +790,7 @@ export default function Login() {
                     direction="row"
                     spacing={1}
                     justifyContent="center"
-                    sx={{ mt: 4, pt: 3, borderTop: "2px solid rgba(102,126,234,0.1)" }}
+                    sx={{ mt: 3, pt: 2.5, borderTop: "2px solid rgba(102,126,234,0.1)" }}
                   >
                     <Button
                       size="small"
@@ -851,13 +851,13 @@ export default function Login() {
                     sx={{
                       display: "flex",
                       justifyContent: "center",
-                      mt: 3,
+                      mt: 2.5,
                     }}
                   >
                     <Box
                       sx={{
-                        px: 2.5,
-                        py: 0.8,
+                        px: 2,
+                        py: 0.6,
                         background: "linear-gradient(135deg, rgba(102,126,234,0.1) 0%, rgba(240,147,251,0.1) 100%)",
                         borderRadius: 50,
                         border: "1px solid rgba(102,126,234,0.2)",
