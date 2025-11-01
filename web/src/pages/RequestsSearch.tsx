@@ -1,6 +1,11 @@
 // ============================================================
 // ไฟล์: web/src/pages/RequestsSearch.tsx
-// เวอร์ชัน: 2025-08-29 v5 (env/localStorage key + auth + hard fallback + debug)
+// เวอร์ชัน: 2025-11-01 v6 (ใช้ Environment Variables เท่านั้น - ไม่มี hardcode)
+//
+// ⚠️ ต้องตั้งค่าในไฟล์ .env.local:
+//    VITE_APPROVER_KEY=your-api-key-here
+//    VITE_LIST_REQUESTS_URL=https://your-api.example.com/listRequests
+//    หรือ VITE_FUNCTIONS_BASE=https://region-project.cloudfunctions.net
 // ============================================================
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -9,22 +14,14 @@ import React, { useEffect, useMemo, useState } from "react";
 const ENV = (import.meta as any)?.env ?? {};
 
 // อ่านคีย์จาก env → localStorage (ห้ามใช้ fallback hardcoded)
-function resolveKey() {
+function resolveKey(): string {
   const fromEnv = (ENV?.VITE_APPROVER_KEY ?? "").toString().trim();
   const fromLS =
     typeof window !== "undefined"
       ? (localStorage.getItem("wp_key") ?? "").trim()
       : "";
 
-  if (!fromEnv && !fromLS) {
-    throw new Error(
-      "❌ VITE_APPROVER_KEY ไม่พบในไฟล์ .env\n" +
-      "กรุณาเพิ่มในไฟล์ .env.local:\n" +
-      "VITE_APPROVER_KEY=your-api-key-here"
-    );
-  }
-
-  return fromEnv || fromLS;
+  return fromEnv || fromLS || "";
 }
 
 // ประกอบ URL listRequests พร้อมแนบ ?key=...
@@ -125,6 +122,14 @@ export default function RequestsSearchPage() {
     setLoading(true);
     setError(null);
     try {
+      // ตรวจสอบว่ามี API key หรือไม่
+      if (!key) {
+        throw new Error(
+          "❌ ไม่พบ API Key\n" +
+          "กรุณาตั้งค่า VITE_APPROVER_KEY ในไฟล์ .env หรือกดปุ่ม 'ตั้งคีย์'"
+        );
+      }
+
       const params = new URLSearchParams();
       if (q.trim()) params.set("q", q.trim());
       if (status !== "all") params.set("status", status);
@@ -234,8 +239,11 @@ export default function RequestsSearchPage() {
   // ให้ผู้ใช้ตั้งคีย์ได้ทันที (เก็บใน localStorage)
   function promptKey() {
     const current = typeof window !== "undefined" ? localStorage.getItem("wp_key") ?? "" : "";
-    const v = window.prompt("ใส่ Approver Key", current || "apl-2025");
-    if (v !== null) {
+    const v = window.prompt(
+      "ใส่ Approver Key (กรุณาตรวจสอบค่าจาก VITE_APPROVER_KEY ใน .env)",
+      current
+    );
+    if (v !== null && v.trim()) {
       localStorage.setItem("wp_key", v.trim());
       window.location.reload();
     }
